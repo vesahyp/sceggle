@@ -1,0 +1,31 @@
+{
+  "name": "sceggle",
+  "version": "1.0.0",
+  "description": "A WebGL scene graph for stack.gl",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vesahyp/sceggle.git"
+  },
+  "keywords": [
+    "webgl",
+    "scene",
+    "graph",
+    "stack",
+    "gl",
+    "stack.gl"
+  ],
+  "author": "Vesa Hyppönen <vesa.hypponen@gmail.com> (https://github.com/vesahyp)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vesahyp/sceggle/issues"
+  },
+  "homepage": "https://github.com/vesahyp/sceggle#readme",
+  "devDependencies": {
+    "eslint": "1.10.3",
+    "eslint-config-airbnb": "4.0.0"
+  }
+}
