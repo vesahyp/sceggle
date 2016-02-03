@@ -4,7 +4,13 @@
   "description": "A WebGL scene graph for stack.gl",
   "main": "src/index.js",
   "scripts": {
+    "dev": "wzrd examples/src/index.js",
+    "build": "browserify src/index.js -o dist/sceggle.js",
+    "example": "browserify examples/src/index.js -o examples/example.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "browserify": {
+    "transform": [ "glslify" ]
   },
   "repository": {
     "type": "git",
@@ -25,7 +31,19 @@
   },
   "homepage": "https://github.com/vesahyp/sceggle#readme",
   "devDependencies": {
+    "browserify": "13.0.0",
     "eslint": "1.10.3",
-    "eslint-config-airbnb": "4.0.0"
+    "eslint-config-airbnb": "4.0.0",
+    "gl-buffer": "2.1.2",
+    "wzrd": "1.3.1"
+  },
+  "dependencies": {
+    "canvas-fit": "1.5.0",
+    "gl-clear": "2.0.0",
+    "gl-context": "0.1.1",
+    "gl-mat4": "1.1.4",
+    "gl-shader": "4.2.0",
+    "gl-vec3": "1.0.3",
+    "glslify": "5.0.2"
   }
 }
