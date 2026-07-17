@@ -24,7 +24,10 @@ land, and keep the "Done" section as a short changelog.
   the turn/energy option below in favour of real-time.
 - **Setting: "The Long Dark."** A sunless world; the last villages huddle around
   bonfires while the Frostmother's court spreads. You are a nameless drifter
-  pushing outward across frozen acts. Full setting bible: TODO (`SETTING.md`).
+  pushing outward across frozen acts. Full setting bible: [`SETTING.md`](./SETTING.md).
+- **Two loot pillars** (see `SETTING.md` §6–8), unified by a single **light**
+  economy: **Emberwork** (Diablo-style sockets/gems) and **Forgework**
+  (Borderlands-style weapon construction from parts + maker quirks).
 
 ## Now / next
 
@@ -48,25 +51,39 @@ land, and keep the "Done" section as a short changelog.
 
 ## Later
 
-### 5. Turn / energy system (optional but roguelike-defining)
-- Decide the core model: real-time-with-physics (current) vs. classic
-  energy-based turns. A hybrid (physics for knockback, turns for actions) is
-  viable — prototype before committing.
+*(Turn/energy system is retired — the design is real-time, see Design direction.)*
 
-### 6. Level structure
-- Stairs + multiple floors; regenerate on descend with an increasing seed.
-- Simple depth-based difficulty scaling (mob count / stats).
+### 5. Emberwork v0 — the light economy begins *(Diablo gems)*
+- Add `sockets` (on gear) and `embers` (collectible) components; a `light`
+  resource on the player (the coal).
+- Ship one ember effect end-to-end (e.g. Coalfire warmth or Witchfire slow) and
+  the light-cutter fuse recipe (3 of a tier → next). See `SETTING.md` §6.
+- **Done when:** you can socket an ember and feel its effect in combat.
 
-### 7. Items & inventory
+### 6. Forgework v0 — weapons vary *(Borderlands parts)*
+- Generate a weapon's **Head** part (damage type + knockback/arc profile) so
+  drops differ; `WeaponDef` becomes assembled rather than hardcoded.
+- Introduce one maker quirk (e.g. Marrowkith bonebreak shockwave). See §7.
+- **Done when:** two dropped weapons play noticeably differently.
+
+### 7. Wardlights — waypoints & soft death
+- Rekindle-able beacons: fast-travel points + revive checkpoints (the coal).
+- **Done when:** dying returns you to the last rekindled wardlight.
+
+### 8. Act / region structure
+- Themed regions (Drowned Marsh → Black Forest → Glass Reach → Stillheart) with
+  a Court boss per act; regenerate per region with a seed.
+- Emberwatch as a safe hub.
+
+### 9. Items & inventory
 - Item entities on the floor; pickup on overlap.
 - Inventory as React UI (this is where R3F's DOM-alongside-canvas pays off).
-- Weapons/armor become pickups rather than hardcoded loadouts.
+- Weapons/embers/garb become pickups rather than hardcoded loadouts.
 
-### 8. Content & feel
-- Enemy variety (component-composed: fast/weak, slow/heavy-knockback, ranged).
+### 10. Content & feel
+- Enemy variety (component-composed): the Hushed, Rimewights, Lanternless.
 - Hit feedback: flash, screen shake, damage numbers.
-- Basic audio.
-- Replace capsule/box placeholders with real (or stylized) meshes.
+- Basic audio; replace capsule/box placeholders with stylized meshes.
 
 ## Someday / ideas
 
