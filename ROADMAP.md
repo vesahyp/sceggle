@@ -17,13 +17,6 @@ land, and keep the "Done" section as a short changelog.
 
 ## Now / next
 
-### 1. Enemy AI — pathfinding & chase
-- Give mobs a `brain` component and a system that runs rot.js Dijkstra/A*
-  (`ROT.Path.AStar`) over the dungeon grid toward the player.
-- Move mobs along the path via Rapier velocity (reuse the player's movement
-  approach). Stop at attack range.
-- **Done when:** the goblin navigates walls to chase the player.
-
 ### 2. Combat loop — enemies fight back & can die
 - Mobs attack when in range (mirror of `performAttack`, weapon-driven).
 - Wire up the existing `health` component: apply damage, despawn at ≤0
@@ -73,6 +66,12 @@ land, and keep the "Done" section as a short changelog.
 
 ## Done
 
+- **Enemy AI — pathfinding & chase.** Mobs carry a `brain` component; a system
+  runs rot.js A* over the dungeon grid and steers the body toward the player,
+  halting at melee range. Hits trigger a short "stagger" so knockback plays out
+  before the AI reasserts control. Also fixed a latent bug: physics handles were
+  never reaching the ECS (direct assignment instead of Miniplex `addComponent`,
+  plus StrictMode-unsafe entity creation), so combat had silently done nothing.
 - **Starter scaffold** — Vite + TS + React, three.js/R3F rendering, Rapier
   physics (weight-scaled knockback), Miniplex ECS, rot.js seeded dungeon.
   Player movement, swappable weapons on player & mob, HUD. (PR #1)

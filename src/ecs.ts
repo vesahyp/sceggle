@@ -24,10 +24,28 @@ export interface Entity {
   armor?: { value: number };
 
   /**
-   * Handle to the Rapier body once the <RigidBody> mounts. Systems read/write
-   * physics through this. Set by the render component, cleared on unmount.
+   * Enemy AI state. Presence makes a mob hunt the player: a system pathfinds
+   * toward the player's cell and steers the body along the route.
    */
-  rb?: RapierRigidBody | null;
+  brain?: {
+    /** Remaining grid cells to walk, nearest first. */
+    path: Array<{ x: number; z: number }>;
+    /** Seconds until the next A* recompute. */
+    repathIn: number;
+    /** Start chasing once the player is within this world distance. */
+    aggro: number;
+    /** Stop short at this world distance (melee stand-off). */
+    attackRange: number;
+    /** Seconds of "don't steer" after a hit, so knockback plays out. */
+    stagger: number;
+  };
+
+  /**
+   * Handle to the Rapier body once the <RigidBody> mounts. Systems read/write
+   * physics through this. Published via {@link publishBody} so Miniplex reindexes
+   * the `rb` archetypes; cleared via {@link unpublishBody} on unmount.
+   */
+  rb?: RapierRigidBody;
 }
 
 /** Single source of truth for simulation entities. */
@@ -36,3 +54,24 @@ export const world = new World<Entity>();
 /** Archetype queries used by systems. */
 export const players = world.with('player', 'rb');
 export const mobs = world.with('mob', 'rb');
+
+/**
+ * Attach a Rapier body to an entity. Must go through addComponent (not a plain
+ * assignment) or Miniplex won't add the entity to the `rb` archetypes that the
+ * systems iterate.
+ */
+export function publishBody(entity: Entity, rb: RapierRigidBody): void {
+  if (entity.rb === rb) return;
+  if (entity.rb) world.removeComponent(entity, 'rb');
+  world.addComponent(entity, 'rb', rb);
+}
+
+/** Detach the Rapier body (on unmount). */
+export function unpublishBody(entity: Entity): void {
+  if (entity.rb) world.removeComponent(entity, 'rb');
+}
+
+// Dev-only: expose the world for debugging in the browser console.
+if (import.meta.env.DEV) {
+  (globalThis as unknown as { world: World<Entity> }).world = world;
+}

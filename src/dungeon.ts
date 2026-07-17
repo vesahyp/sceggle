@@ -1,5 +1,13 @@
 import * as ROT from 'rot-js';
 
+export const TILE = 1; // world units per grid cell
+
+/** Grid cell → world coordinate (cell centre). */
+export const cellToWorld = (c: number) => c * TILE;
+
+/** World coordinate → grid cell. */
+export const worldToCell = (w: number) => Math.round(w / TILE);
+
 export type Cell = 0 | 1; // 0 = floor, 1 = wall
 
 export interface Dungeon {

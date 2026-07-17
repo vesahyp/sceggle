@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrthographicCamera } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
-import { world } from './ecs';
+import { world, type Entity } from './ecs';
 import { WEAPONS, nextWeapon } from './weapons';
 import { generateDungeon } from './dungeon';
 import { useKeyboard } from './input';
@@ -10,8 +10,17 @@ import { performAttack } from './systems';
 import { DungeonView, TILE } from './scene/Dungeon';
 import { Player } from './scene/Player';
 import { Mob } from './scene/Mob';
+import { EnemyAI } from './scene/EnemyAI';
 
 const Y = 0.65; // fixed body height above the floor plane
+
+/** A value computed once and kept stable for the component's life — including
+ *  across StrictMode's double-invoked render, unlike a side-effecting useMemo. */
+function useConstant<T>(factory: () => T): T {
+  const ref = useRef<T>();
+  if (ref.current === undefined) ref.current = factory();
+  return ref.current;
+}
 
 export default function App() {
   // Seeded dungeon → reproducible layout. Change the seed for a new floor.
@@ -29,12 +38,21 @@ export default function App() {
     };
   }, [dungeon]);
 
-  // ECS entities — created once, live for the app's lifetime.
-  const playerEntity = useMemo(() => world.add({ player: true as const, health: { current: 100, max: 100 } }), []);
-  const goblinEntity = useMemo(() => world.add({ mob: true as const, health: { current: 10, max: 10 } }), []);
-  useEffect(() => () => {
-    world.remove(playerEntity);
-    world.remove(goblinEntity);
+  // ECS entities — stable objects created once. World membership is managed in
+  // an effect (not during render) so it stays correct under StrictMode.
+  const playerEntity = useConstant<Entity>(() => ({ player: true, health: { current: 100, max: 100 } }));
+  const goblinEntity = useConstant<Entity>(() => ({
+    mob: true,
+    health: { current: 10, max: 10 },
+    brain: { path: [], repathIn: 0, aggro: 40, attackRange: 1.2, stagger: 0 },
+  }));
+  useEffect(() => {
+    world.add(playerEntity);
+    world.add(goblinEntity);
+    return () => {
+      world.remove(playerEntity);
+      world.remove(goblinEntity);
+    };
   }, [playerEntity, goblinEntity]);
 
   // Reactive equipment state drives BOTH the rendered blade (prop) and the
@@ -72,6 +90,7 @@ export default function App() {
           <DungeonView dungeon={dungeon} />
           <Player entity={playerEntity} weapon={playerWeapon} start={playerStart} />
           <Mob entity={goblinEntity} weapon={goblinWeapon} start={goblinStart} />
+          <EnemyAI dungeon={dungeon} />
         </Physics>
       </Canvas>
 
@@ -83,6 +102,7 @@ export default function App() {
           <li><kbd>Space</kbd> attack (knockback ∝ weapon weight)</li>
           <li><kbd>1</kbd> swap your weapon · <kbd>2</kbd> swap goblin's weapon</li>
         </ul>
+        <div className="stat">The goblin hunts you — it paths around walls.</div>
         <div className="stat">Your weapon: <b>{playerWeapon.name}</b> <span>· weight {playerWeapon.weight}</span></div>
         <div className="stat">Goblin's weapon: <b>{goblinWeapon.name}</b></div>
       </div>
