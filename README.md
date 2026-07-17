@@ -2,6 +2,8 @@
 
 A top-down 3D roguelike starter — code-first, minimal, own-the-loop.
 
+**▶ Play: https://vesahyp.github.io/sceggle/** — every merge to `master` publishes a new build via GitHub Actions.
+
 > Reboot of a 2016 WebGL scene-graph experiment. Rather than build a renderer
 > from scratch on the (now-defunct) stack.gl toolchain, this version composes a
 > game from modern, maintained libraries. The original code is preserved under
