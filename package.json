@@ -1,49 +1,33 @@
 {
   "name": "sceggle",
-  "version": "1.0.0",
-  "description": "A WebGL scene graph for stack.gl",
-  "main": "src/index.js",
+  "version": "2.0.0-alpha.0",
+  "private": true,
+  "description": "A top-down 3D roguelike — three.js + Rapier + Miniplex + rot.js",
+  "type": "module",
   "scripts": {
-    "dev": "wzrd examples/src/index.js",
-    "build": "browserify src/index.js -o dist/sceggle.js",
-    "example": "browserify examples/src/index.js -o examples/example.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
-  "browserify": {
-    "transform": [ "glslify" ]
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/vesahyp/sceggle.git"
-  },
-  "keywords": [
-    "webgl",
-    "scene",
-    "graph",
-    "stack",
-    "gl",
-    "stack.gl"
-  ],
   "author": "Vesa Hyppönen <vesa.hypponen@gmail.com> (https://github.com/vesahyp)",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/vesahyp/sceggle/issues"
-  },
-  "homepage": "https://github.com/vesahyp/sceggle#readme",
-  "devDependencies": {
-    "browserify": "13.0.0",
-    "eslint": "1.10.3",
-    "eslint-config-airbnb": "4.0.0",
-    "gl-buffer": "2.1.2",
-    "wzrd": "1.3.1"
-  },
   "dependencies": {
-    "canvas-fit": "1.5.0",
-    "gl-clear": "2.0.0",
-    "gl-context": "0.1.1",
-    "gl-mat4": "1.1.4",
-    "gl-shader": "4.2.0",
-    "gl-vec3": "1.0.3",
-    "glslify": "5.0.2"
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/rapier": "^1.5.0",
+    "miniplex": "^2.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rot-js": "^2.2.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.169.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9"
   }
 }

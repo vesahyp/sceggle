@@ -1,0 +1,69 @@
+* {
+  margin: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1117;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: rgba(20, 24, 34, 0.72);
+  backdrop-filter: blur(6px);
+  color: #e5e9f0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  user-select: none;
+  pointer-events: none;
+  max-width: 320px;
+}
+
+.hud h1 {
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+
+.hud .sub {
+  font-size: 12px;
+  color: #8b93a7;
+  margin-bottom: 10px;
+}
+
+.hud ul {
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.9;
+  color: #c3cad9;
+  margin-bottom: 10px;
+}
+
+.hud .stat {
+  font-size: 13px;
+  color: #c3cad9;
+  line-height: 1.7;
+}
+
+.hud .stat span {
+  color: #8b93a7;
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 3px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  background: #2a3040;
+  border: 1px solid #3d4456;
+  border-radius: 4px;
+}
