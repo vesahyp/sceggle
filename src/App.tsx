@@ -6,7 +6,6 @@ import { world, type Entity } from './ecs';
 import { WEAPONS, nextWeapon } from './weapons';
 import { generateDungeon } from './dungeon';
 import { useKeyboard } from './input';
-import { performAttack } from './systems';
 import { DungeonView, TILE } from './scene/Dungeon';
 import { Player } from './scene/Player';
 import { Mob } from './scene/Mob';
@@ -66,7 +65,6 @@ export default function App() {
     () => ({
       Digit1: () => setPlayerWeapon((w) => nextWeapon(w)),
       Digit2: () => setGoblinWeapon((w) => nextWeapon(w)),
-      Space: () => performAttack(),
     }),
     [],
   );
@@ -98,8 +96,8 @@ export default function App() {
         <h1>sceggle</h1>
         <p className="sub">three.js · Rapier · Miniplex · rot.js</p>
         <ul>
-          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</li>
-          <li><kbd>Space</kbd> attack (knockback ∝ weapon weight)</li>
+          <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · <kbd>Mouse</kbd> aim</li>
+          <li><kbd>Click</kbd> / <kbd>Space</kbd> swing — enemies fly the way you swing</li>
           <li><kbd>1</kbd> swap your weapon · <kbd>2</kbd> swap goblin's weapon</li>
         </ul>
         <div className="stat">The goblin hunts you — it paths around walls.</div>

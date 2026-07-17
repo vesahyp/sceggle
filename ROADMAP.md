@@ -15,6 +15,17 @@ land, and keep the "Done" section as a short changelog.
 - **Keep the hot loop imperative.** Per-frame work mutates refs in `useFrame`;
   React state is for structure and UI, not simulation.
 
+## Design direction (decided)
+
+- **Feel: Diablo II, not NetHack.** Real-time physics combat, act/zone structure
+  with a hub + waypoints (not one infinite shaft or discrete ASCII floors),
+  loot-driven itemization (rarity + affixes; weapon `weight` is the first affix),
+  and softer death (checkpoints/revive, not one-life permadeath). This retires
+  the turn/energy option below in favour of real-time.
+- **Setting: "The Long Dark."** A sunless world; the last villages huddle around
+  bonfires while the Frostmother's court spreads. You are a nameless drifter
+  pushing outward across frozen acts. Full setting bible: TODO (`SETTING.md`).
+
 ## Now / next
 
 ### 2. Combat loop — enemies fight back & can die
@@ -66,6 +77,10 @@ land, and keep the "Done" section as a short changelog.
 
 ## Done
 
+- **Directional swings.** Aim comes from the mouse; a swing only hits mobs in a
+  cone in front of you and launches them *along the swing direction* (blended
+  with a little radial), not merely away — so facing and swing direction matter.
+  The held weapon sweeps through an arc to sell the hit.
 - **Enemy AI — pathfinding & chase.** Mobs carry a `brain` component; a system
   runs rot.js A* over the dungeon grid and steers the body toward the player,
   halting at melee range. Hits trigger a short "stagger" so knockback plays out
