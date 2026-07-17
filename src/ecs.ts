@@ -19,6 +19,9 @@ export interface Entity {
   /** Currently equipped weapon (swap = reassign this field). */
   weapon?: WeaponDef;
 
+  /** Unit vector (x,z) the entity is aiming/facing. Drives swing direction. */
+  aim?: { x: number; z: number };
+
   /** Example stat component — extend with armor, statuses, etc. */
   health?: { current: number; max: number };
   armor?: { value: number };

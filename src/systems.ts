@@ -4,13 +4,19 @@ import { cellToWorld, worldToCell, type Dungeon } from './dungeon';
 
 const MOB_SPEED = 3.2; // a touch slower than the player, so you can kite
 
+/** Half-angle of the swing arc, in radians (~70° to each side of the aim). */
+const SWING_HALF_ARC = Math.cos((70 * Math.PI) / 180);
+/** How much the shove follows the swing direction vs. straight-out radial. */
+const SWING_BIAS = 0.8;
+
 /**
- * Combat system: the player swings. Every mob within the equipped weapon's
- * reach takes a knockback impulse pointing away from the player, scaled by the
- * weapon's `weight`. This is the whole "a heavy sword shoves enemies" idea —
- * one impulse, read straight off the weapon component, applied through Rapier.
+ * Combat system: the player swings in the direction they're aiming. Only mobs
+ * inside the swing arc (a cone around `entity.aim`) and within reach are hit,
+ * and each is shoved mostly along the swing direction — so a heavy sword
+ * launches enemies *where you swung*, not merely away from you. Impulse scales
+ * with the weapon's `weight`.
  *
- * Returns the ids of mobs that were hit (handy for flash effects / logging).
+ * Returns the number of mobs hit (handy for flash effects / logging).
  */
 export function performAttack(): number {
   const player = players.first;
@@ -19,6 +25,7 @@ export function performAttack(): number {
   const p = player.rb.translation();
   const reach = player.weapon.reach;
   const weight = player.weapon.weight;
+  const aim = player.aim ?? { x: 0, z: 1 };
   let hits = 0;
 
   for (const mob of mobs) {
@@ -29,11 +36,19 @@ export function performAttack(): number {
     const dist = Math.hypot(dx, dz);
     if (dist > reach + 0.6) continue; // +0.6 fudge for body radii
 
-    // Normalized shove direction (default forward if exactly overlapping).
-    const nx = dist > 1e-4 ? dx / dist : 0;
-    const nz = dist > 1e-4 ? dz / dist : 1;
+    // Direction from player to mob; skip mobs outside the swing arc.
+    const nx = dist > 1e-4 ? dx / dist : aim.x;
+    const nz = dist > 1e-4 ? dz / dist : aim.z;
+    if (nx * aim.x + nz * aim.z < SWING_HALF_ARC) continue;
 
-    mob.rb.applyImpulse({ x: nx * weight, y: weight * 0.15, z: nz * weight }, true);
+    // Shove along the swing direction, blended with a little radial push.
+    let px = aim.x * SWING_BIAS + nx * (1 - SWING_BIAS);
+    let pz = aim.z * SWING_BIAS + nz * (1 - SWING_BIAS);
+    const pl = Math.hypot(px, pz) || 1;
+    px /= pl;
+    pz /= pl;
+
+    mob.rb.applyImpulse({ x: px * weight, y: weight * 0.15, z: pz * weight }, true);
     if (mob.health) mob.health.current -= 1;
     // Let the shove play out before the AI reasserts its velocity.
     if (mob.brain) mob.brain.stagger = 0.4;
