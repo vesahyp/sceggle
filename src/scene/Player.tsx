@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CapsuleCollider, type RapierRigidBody } from '@react-three/rapier';
 import { Vector3 } from 'three';
-import type { Entity } from '../ecs';
+import { publishBody, unpublishBody, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { keyboard } from '../input';
 import { Weapon } from './Weapon';
@@ -20,17 +20,14 @@ export function Player({ entity, weapon, start }: { entity: Entity; weapon: Weap
   const body = useRef<RapierRigidBody>(null);
   const camera = useThree((s) => s.camera);
 
-  // Publish the physics handle to the ECS so systems (combat) can reach it.
-  useEffect(() => {
-    entity.rb = body.current;
-    return () => {
-      entity.rb = null;
-    };
-  }, [entity]);
+  // Clear the ECS handle on unmount (it's published from useFrame below, once
+  // Rapier has actually created the body).
+  useEffect(() => () => unpublishBody(entity), [entity]);
 
   useFrame(() => {
     const rb = body.current;
     if (!rb) return;
+    publishBody(entity, rb); // publish the physics handle for systems (combat, AI)
 
     let x = 0;
     let z = 0;

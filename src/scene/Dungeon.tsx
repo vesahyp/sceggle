@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { Instances, Instance } from '@react-three/drei';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import type { Dungeon } from '../dungeon';
+import { TILE, type Dungeon } from '../dungeon';
 
-export const TILE = 1; // world units per grid cell
+export { TILE };
 const WALL_H = 1.2;
 
 /**

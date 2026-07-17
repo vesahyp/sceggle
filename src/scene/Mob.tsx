@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { RigidBody, CapsuleCollider, type RapierRigidBody } from '@react-three/rapier';
-import type { Entity } from '../ecs';
+import { publishBody, unpublishBody, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { Weapon } from './Weapon';
 
@@ -13,12 +14,11 @@ import { Weapon } from './Weapon';
 export function Mob({ entity, weapon, start }: { entity: Entity; weapon: WeaponDef; start: [number, number, number] }) {
   const body = useRef<RapierRigidBody>(null);
 
-  useEffect(() => {
-    entity.rb = body.current;
-    return () => {
-      entity.rb = null;
-    };
-  }, [entity]);
+  // Publish the physics handle once Rapier has created the body; clear on unmount.
+  useEffect(() => () => unpublishBody(entity), [entity]);
+  useFrame(() => {
+    if (body.current) publishBody(entity, body.current);
+  });
 
   return (
     <RigidBody
