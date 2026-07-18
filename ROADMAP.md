@@ -31,19 +31,19 @@ land, and keep the "Done" section as a short changelog.
 
 ## Now / next
 
-### 2. Combat loop — enemies fight back & can die
+### 1. Combat loop — enemies fight back & can die
 - Mobs attack when in range (mirror of `performAttack`, weapon-driven).
 - Wire up the existing `health` component: apply damage, despawn at ≤0
   (remove from the ECS world → R3F unmounts the entity).
 - Player death → run-over state.
 - **Done when:** you can kill the goblin and it can kill you.
 
-### 3. Armor & damage model
+### 2. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weight-driven; armor only mitigates HP loss.
 - **Done when:** equipping armor visibly reduces damage taken.
 
-### 4. Field of view / fog of war
+### 3. Field of view / fog of war
 - Use `ROT.FOV.PreciseShadowcasting` from the player's cell each move.
 - Dim/hide unseen tiles (per-instance color or visibility) with a "seen but not
   visible" memory tier.
@@ -53,34 +53,34 @@ land, and keep the "Done" section as a short changelog.
 
 *(Turn/energy system is retired — the design is real-time, see Design direction.)*
 
-### 5. Emberwork v0 — the light economy begins *(Diablo gems)*
+### 4. Emberwork v0 — the light economy begins *(Diablo gems)*
 - Add `sockets` (on gear) and `embers` (collectible) components; a `light`
   resource on the player (the coal).
 - Ship one ember effect end-to-end (e.g. Coalfire warmth or Witchfire slow) and
   the light-cutter fuse recipe (3 of a tier → next). See `SETTING.md` §6.
 - **Done when:** you can socket an ember and feel its effect in combat.
 
-### 6. Forgework v0 — weapons vary *(Borderlands parts)*
+### 5. Forgework v0 — weapons vary *(Borderlands parts)*
 - Generate a weapon's **Head** part (damage type + knockback/arc profile) so
   drops differ; `WeaponDef` becomes assembled rather than hardcoded.
 - Introduce one maker quirk (e.g. Marrowkith bonebreak shockwave). See §7.
 - **Done when:** two dropped weapons play noticeably differently.
 
-### 7. Wardlights — waypoints & soft death
+### 6. Wardlights — waypoints & soft death
 - Rekindle-able beacons: fast-travel points + revive checkpoints (the coal).
 - **Done when:** dying returns you to the last rekindled wardlight.
 
-### 8. Act / region structure
+### 7. Act / region structure
 - Themed regions (Drowned Marsh → Black Forest → Glass Reach → Stillheart) with
   a Court boss per act; regenerate per region with a seed.
 - Emberwatch as a safe hub.
 
-### 9. Items & inventory
+### 8. Items & inventory
 - Item entities on the floor; pickup on overlap.
 - Inventory as React UI (this is where R3F's DOM-alongside-canvas pays off).
 - Weapons/embers/garb become pickups rather than hardcoded loadouts.
 
-### 10. Content & feel
+### 9. Content & feel
 - Enemy variety (component-composed): the Hushed, Rimewights, Lanternless.
 - Hit feedback: flash, screen shake, damage numbers.
 - Basic audio; replace capsule/box placeholders with stylized meshes.
