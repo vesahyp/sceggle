@@ -6,8 +6,16 @@ import react from '@vitejs/plugin-react';
 //
 // `base` is '/sceggle/' for production builds because GitHub Pages serves a
 // project site under https://<user>.github.io/<repo>/. Dev stays at '/'.
-export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/sceggle/' : '/',
+//
+// `isPreview` matters: `vite preview` runs with command === 'serve', so keying
+// base off command alone served the built index.html (which has /sceggle/ paths
+// baked in) from base '/'. Asset URLs then missed the static dir and fell
+// through to the SPA fallback — normal requests got index.html with
+// content-type text/html, and module scripts got a bare 404 because vite
+// rightly refuses to hand HTML to a <script>. Net effect was a blank page that
+// looked like a broken build.
+export default defineConfig(({ command, isPreview }) => ({
+  base: command === 'build' || isPreview ? '/sceggle/' : '/',
   plugins: [react()],
   optimizeDeps: {
     exclude: ['@dimforge/rapier3d-compat'],
