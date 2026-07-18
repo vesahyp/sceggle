@@ -94,6 +94,11 @@ land, and keep the "Done" section as a short changelog.
 
 ## Done
 
+- **Dependency re-baseline.** The reboot scaffold was written against ~Oct 2024
+  versions, which shipped 4 open Dependabot alerts on day one (3× vite, 1×
+  esbuild — all dev-server only). Moved to the current stack: React 19, R3F 9,
+  drei 10, Rapier 2, three 0.185, vite 8, TypeScript 6. Requires Node ≥20.19
+  (pinned via `.nvmrc` + `engines`). 0 vulnerabilities.
 - **Directional swings.** Aim comes from the mouse; a swing only hits mobs in a
   cone in front of you and launches them *along the swing direction* (blended
   with a little radial), not merely away — so facing and swing direction matter.

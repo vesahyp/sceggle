@@ -16,7 +16,7 @@ const Y = 0.65; // fixed body height above the floor plane
 /** A value computed once and kept stable for the component's life — including
  *  across StrictMode's double-invoked render, unlike a side-effecting useMemo. */
 function useConstant<T>(factory: () => T): T {
-  const ref = useRef<T>();
+  const ref = useRef<T | undefined>(undefined);
   if (ref.current === undefined) ref.current = factory();
   return ref.current;
 }
