@@ -13,7 +13,7 @@
   "author": "Vesa Hyppönen <vesa.hypponen@gmail.com> (https://github.com/vesahyp)",
   "license": "MIT",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=24"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
