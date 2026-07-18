@@ -72,7 +72,10 @@ export default function App() {
 
   return (
     <>
-      <Canvas shadows>
+      {/* "percentage" = PCFShadowMap. Bare `shadows` selects PCFSoftShadowMap,
+          which three deprecated in 0.185 and silently substitutes PCF for —
+          so this is the renderer we were already getting, just stated. */}
+      <Canvas shadows="percentage">
         <color attach="background" args={['#0f1117']} />
         <OrthographicCamera makeDefault position={[0, 12, 8]} zoom={42} near={0.1} far={200} />
 
