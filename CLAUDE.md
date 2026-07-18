@@ -52,7 +52,9 @@ legacy/         Original 2016 code — reference only, don't extend
   pass. When practical, smoke-test the runtime (load the dev server in a
   headless browser and confirm the canvas mounts with no console errors) —
   a green build doesn't prove the scene renders.
-- Keep changes scoped to one roadmap item per PR. Update `ROADMAP.md`
-  (check off / move to Done) as part of the change.
+- Keep changes scoped to one roadmap item per PR. Delete the item from
+  `ROADMAP.md` as part of the change — don't archive it in a "Done" section.
+  `ROADMAP.md` is forward-looking only; git history is the record of what
+  shipped, and duplicating it there just creates a second copy that rots.
 - Placeholders (capsules, boxes) are intentional; don't gold-plate visuals
   unless that's the task.
