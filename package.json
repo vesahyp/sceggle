@@ -2,7 +2,7 @@
   "name": "sceggle",
   "version": "2.0.0-alpha.0",
   "private": true,
-  "description": "A top-down 3D roguelike — three.js + Rapier + Miniplex + rot.js",
+  "description": "A top-down hack-slash-loot — three.js + Miniplex + rot.js",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,6 @@
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "@react-three/rapier": "^2.2.0",
     "miniplex": "^2.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
