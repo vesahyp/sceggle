@@ -2,14 +2,15 @@
   "name": "sceggle",
   "short_name": "sceggle",
   "description": "Top-down horde hack-slash-loot with constructible guns",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "./icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
