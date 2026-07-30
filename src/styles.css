@@ -8,9 +8,18 @@ body,
 #root {
   width: 100%;
   height: 100%;
+  /* dvh: the URL-bar-proof viewport unit on mobile browsers. */
+  height: 100dvh;
   overflow: hidden;
   background: #0f1117;
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* The twin sticks own every touch: no scrolling, zooming, pull-to-
+     refresh, or tap highlights fighting the game. */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .hud {
@@ -165,6 +174,104 @@ body,
 
 .inv-x:hover {
   color: #ff6b6b;
+}
+
+/* Virtual twin sticks: pure display (pointer-events: none) — touch.ts owns
+   the input, this layer just shows base + knob under each active thumb. */
+.touch-sticks {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.stick-base,
+.stick-knob {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: none;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.stick-base {
+  width: 140px;
+  height: 140px;
+  border: 2px solid rgba(139, 147, 167, 0.45);
+  background: rgba(20, 24, 34, 0.25);
+}
+
+.stick-knob {
+  width: 56px;
+  height: 56px;
+  background: rgba(197, 205, 224, 0.55);
+}
+
+.stick-base.stick-aim {
+  border-color: rgba(255, 209, 102, 0.5);
+}
+
+.stick-knob.stick-aim {
+  background: rgba(255, 209, 102, 0.6);
+}
+
+/* Pack toggle + sheet (coarse pointers): the button sits in the hard-to-
+   reach top-right corner on purpose — it's a deliberate pause action, not
+   a combat control. The sheet pauses the sim while open. */
+.pack-toggle {
+  all: unset;
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 40;
+  padding: 10px 16px;
+  min-width: 48px;
+  min-height: 28px;
+  text-align: center;
+  border-radius: 10px;
+  background: rgba(20, 24, 34, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #e5e9f0;
+  font-size: 14px;
+}
+
+.pack-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(11, 13, 18, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pack-sheet .inventory {
+  position: static;
+  width: min(340px, 86vw);
+  max-height: 82dvh;
+}
+
+/* Phone layout: the HUD shrinks to an info strip inside the safe area;
+   the how-to-play list and desktop hints go away. */
+@media (pointer: coarse) {
+  .hud {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    padding: 8px 12px;
+    max-width: 250px;
+  }
+
+  .hud h1,
+  .hud .sub,
+  .hud ul {
+    display: none;
+  }
+
+  .hud .stat {
+    font-size: 12px;
+    line-height: 1.5;
+  }
 }
 
 /* Kill-streak multiplier: pops on every kill in the chain (the key remount

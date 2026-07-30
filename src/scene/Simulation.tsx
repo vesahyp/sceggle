@@ -8,9 +8,12 @@ import type { GameMap } from '../worldmap';
  * Priority -1 steps the sim *before* the view components (default priority)
  * copy positions into meshes, so what you see is always this frame's state.
  */
-export function Simulation({ map }: { map: GameMap }) {
+export function Simulation({ map, paused = false }: { map: GameMap; paused?: boolean }) {
   // Clamp delta: after a background-tab pause it can be seconds, enough to
-  // tunnel movers through obstacles in a single step.
-  useFrame((_, delta) => stepSimulation(map, Math.min(delta, 0.1)), -1);
+  // tunnel movers through obstacles in a single step. `paused` holds the
+  // world still (the pack sheet is open) while rendering continues.
+  useFrame((_, delta) => {
+    if (!paused) stepSimulation(map, Math.min(delta, 0.1));
+  }, -1);
   return null;
 }

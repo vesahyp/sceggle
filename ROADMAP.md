@@ -51,23 +51,7 @@ they land (git history is the changelog).
 
 ## Now / next
 
-### 1. Mobile twin-stick controls & layout
-- Primary device is a phone (landscape). Two floating virtual sticks:
-  left half = move, right half = aim, deflection past the dead zone holds
-  fire. Per twin-stick usability research: sticks spawn at the touch point,
-  render only while touched, keep tracking outside their radius, and never
-  shift inward at screen edges.
-- Mild aim assist (snap a few degrees to the nearest mob) — thumb precision
-  needs it.
-- HUD compresses to an info strip (HP/area/kills, combo stays top-center);
-  the pack panel becomes a sim-pausing modal sheet behind a top-right
-  button. Desktop keeps keyboard/mouse and the persistent panel.
-- Web plumbing: touch-action none, per-touch-id tracking, viewport-fit
-  cover + safe-area insets, 100dvh, PWA manifest with landscape lock.
-- **Done when:** an area is beatable on a phone with two thumbs and the
-  pack is usable mid-run.
-
-### 2. Main menu, character creation & world seed
+### 1. Main menu, character creation & world seed
 - A main menu before the game: new run rolls (or lets you enter) a **world
   seed**, shown in the HUD — the one number every generation derives from.
   Today's fixed `SEED = 1337` retires.
@@ -77,7 +61,7 @@ they land (git history is the changelog).
 - **Done when:** two runs with different seeds differ everywhere; re-entering
   a seed reproduces the run.
 
-### 3. Area difficulty budget
+### 2. Area difficulty budget
 - Mob *rosters* stop being formula-coded: each area gets a difficulty point
   pool (from its area number) that buys the roster — how many mobs, their
   level mix, their placement — with each mob then rolling its own stat pool
@@ -86,7 +70,7 @@ they land (git history is the changelog).
   standoff) into the spawn roll.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 4. Footsteps & noise (the mechanic)
+### 3. Footsteps & noise (the mechanic)
 - The visualization shipped (player footstep ripples, mob hearing rings);
   now make it true: **footstep weight** on every mover, noise radius scaling
   with weight and speed, and mob *hearing* reacting to emitted noise instead
@@ -95,14 +79,14 @@ they land (git history is the changelog).
 - **Done when:** the ripple you see IS the noise mobs hear — walking slowly
   past a hearing ring that sprinting would have tripped.
 
-### 5. Minimap of observed enemies
+### 4. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
   observed position of each enemy — observed meaning inside your vision,
   not omniscient.
 - **Done when:** you can navigate an explored area and track known enemies
   from the map alone.
 
-### 6. Rarity on drops
+### 5. Rarity on drops
 - Weapons and mobs are already point-budget generated (`generateWeapon`,
   `App.spawnMobs`); rarity layers on top: a drop rolls a rarity tier from
   the ladder via seeded RNG, granting bonus budget, driving the
@@ -113,17 +97,17 @@ they land (git history is the changelog).
 
 ## Later
 
-### 7. Armor & damage model
+### 6. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weapon-driven; armor only mitigates HP loss.
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 8. Lighting & readability pass
+### 7. Lighting & readability pass
 - The field is murky; rarity colors and the sense-visualization layers
   (cones, rings, ripples) need to read at a glance without adding clutter.
 
-### 9. World variety
+### 8. World variety
 - Biome variation of the scatter generator (density, cluster size, palette),
   bought from the same area budget as the roster.
 

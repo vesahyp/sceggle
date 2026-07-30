@@ -12,10 +12,11 @@ import {
   RingGeometry,
   Vector3,
 } from 'three';
-import type { Entity } from '../ecs';
+import { mobs, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { circleOverlapsWall, type GameMap } from '../worldmap';
 import { keyboard } from '../input';
+import { touch } from '../touch';
 import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
@@ -33,6 +34,34 @@ const GROUND = -BODY_Y + 0.05;
 const groundPlane = new Plane(new Vector3(0, 1, 0), -BODY_Y);
 const hitPoint = new Vector3();
 const camTarget = new Vector3();
+
+/**
+ * Aim assist for the touch stick: if a live mob sits within ~10° of the
+ * stick direction (and inside weapon range), snap the aim onto it. Small
+ * enough that pointing between two mobs stays your choice; enough that a
+ * thumb doesn't whiff a straight shot. Mouse aim never gets it.
+ */
+function assistAim(
+  pos: { x: number; z: number },
+  ax: number,
+  az: number,
+  range: number,
+): { x: number; z: number } {
+  let bestDot = Math.cos(0.18);
+  let best: { x: number; z: number } | null = null;
+  for (const m of mobs) {
+    const dx = m.pos.x - pos.x;
+    const dz = m.pos.z - pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.5 || d > range) continue;
+    const dot = (ax * dx + az * dz) / d;
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = { x: dx / d, z: dz / d };
+    }
+  }
+  return best ?? { x: ax, z: az };
+}
 
 // Shared geometry for the ranged aim line: unit length along +Z, anchored at
 // the origin so scale.z stretches it to the (wall-clipped) range.
@@ -116,32 +145,45 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     const vel = entity.vel;
     if (!pos || !vel) return;
 
-    // --- Movement (held keys → velocity; the sim integrates it) ---
-    // During hit-stun the incoming knockback owns the velocity — no steering.
+    // --- Movement (touch stick or held keys → velocity; the sim
+    //     integrates it). Touch is analog: half deflection walks. During
+    //     hit-stun the incoming knockback owns the velocity — no steering.
     if ((entity.stun ?? 0) <= 0) {
-      let x = 0;
-      let z = 0;
-      if (keyboard.isDown('KeyW') || keyboard.isDown('ArrowUp')) z -= 1;
-      if (keyboard.isDown('KeyS') || keyboard.isDown('ArrowDown')) z += 1;
-      if (keyboard.isDown('KeyA') || keyboard.isDown('ArrowLeft')) x -= 1;
-      if (keyboard.isDown('KeyD') || keyboard.isDown('ArrowRight')) x += 1;
-      const len = Math.hypot(x, z) || 1;
-      vel.x = (x / len) * SPEED;
-      vel.z = (z / len) * SPEED;
+      if (touch.move.active) {
+        vel.x = touch.move.x * SPEED;
+        vel.z = touch.move.z * SPEED;
+      } else {
+        let x = 0;
+        let z = 0;
+        if (keyboard.isDown('KeyW') || keyboard.isDown('ArrowUp')) z -= 1;
+        if (keyboard.isDown('KeyS') || keyboard.isDown('ArrowDown')) z += 1;
+        if (keyboard.isDown('KeyA') || keyboard.isDown('ArrowLeft')) x -= 1;
+        if (keyboard.isDown('KeyD') || keyboard.isDown('ArrowRight')) x += 1;
+        const len = Math.hypot(x, z) || 1;
+        vel.x = (x / len) * SPEED;
+        vel.z = (z / len) * SPEED;
+      }
     }
 
-    // --- Aim (mouse projected onto the body-height ground plane) ---
-    raycaster.setFromCamera(pointer, camera);
-    if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
-      const ax = hitPoint.x - pos.x;
-      const az = hitPoint.z - pos.z;
-      const al = Math.hypot(ax, az);
-      if (al > 0.15) entity.aim = { x: ax / al, z: az / al };
+    // --- Aim: the aim stick when a thumb is down (with a nudge of aim
+    //     assist — thumb precision isn't mouse precision), else the mouse
+    //     projected onto the body-height ground plane. ---
+    if (touch.aim.active) {
+      entity.aim = assistAim(pos, touch.aim.x, touch.aim.z, weapon.reach);
+    } else if (!touch.used) {
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
+        const ax = hitPoint.x - pos.x;
+        const az = hitPoint.z - pos.z;
+        const al = Math.hypot(ax, az);
+        if (al > 0.15) entity.aim = { x: ax / al, z: az / al };
+      }
     }
 
-    // --- Attack cadence: while held, attack every 1/rate seconds ---
+    // --- Attack cadence: while held (button, key, or aim-stick
+    //     deflection), attack every 1/rate seconds ---
     cooldown.current -= delta;
-    if (attackHeld.current && cooldown.current <= 0) {
+    if ((attackHeld.current || touch.aim.fire) && cooldown.current <= 0) {
       cooldown.current = 1 / weapon.rate;
       performAttack(); // melee: starts a sim swing · ranged: fires a bolt
     }

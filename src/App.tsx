@@ -11,6 +11,8 @@ import {
   type WeaponDef,
 } from './weapons';
 import { Inventory } from './Inventory';
+import { TouchSticks } from './TouchSticks';
+import { initTouch } from './touch';
 import { generateWorldMap, cellToWorld, type GameMap } from './worldmap';
 import { onGameEvent } from './events';
 import { useKeyboard } from './input';
@@ -309,6 +311,12 @@ export default function App() {
   const [area, setArea] = useState(1);
   const map = useMemo(() => generateWorldMap(64, 64, SEED + area), [area]);
 
+  // Coarse pointer = phone/tablet layout: compact HUD, pack behind a
+  // toggle that pauses the sim. Fine pointers keep the persistent panel.
+  const isCoarse = useConstant(() => window.matchMedia('(pointer: coarse)').matches);
+  const [packOpen, setPackOpen] = useState(false);
+  useEffect(initTouch, []);
+
   const playerEntity = useConstant<Entity>(() => ({
     player: true,
     health: { current: 20, max: 20 },
@@ -489,8 +497,10 @@ export default function App() {
         <Effects />
         <DamageNumbers />
         <Vision entity={playerEntity} />
-        <Simulation map={map} />
+        <Simulation map={map} paused={packOpen} />
       </Canvas>
+
+      <TouchSticks />
 
       {combo >= 2 && (
         <div className="combo" key={combo}>
@@ -498,15 +508,40 @@ export default function App() {
         </div>
       )}
 
-      <Inventory
-        weapons={inventory}
-        parts={parts}
-        equippedId={playerWeapon.id}
-        onEquip={setEquippedId}
-        onDiscardWeapon={discardWeapon}
-        onInstall={installPart}
-        onDiscardPart={discardPart}
-      />
+      {/* Desktop: the pack lives beside the canvas. Touch: behind a button,
+          in a sim-pausing sheet — two thumbs are busy during combat. */}
+      {isCoarse ? (
+        <>
+          <button className="pack-toggle" onClick={() => setPackOpen((o) => !o)}>
+            {packOpen ? '✕' : '⚙ pack'}
+          </button>
+          {packOpen && (
+            <div className="pack-sheet" onClick={() => setPackOpen(false)}>
+              <div onClick={(e) => e.stopPropagation()}>
+                <Inventory
+                  weapons={inventory}
+                  parts={parts}
+                  equippedId={playerWeapon.id}
+                  onEquip={setEquippedId}
+                  onDiscardWeapon={discardWeapon}
+                  onInstall={installPart}
+                  onDiscardPart={discardPart}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <Inventory
+          weapons={inventory}
+          parts={parts}
+          equippedId={playerWeapon.id}
+          onEquip={setEquippedId}
+          onDiscardWeapon={discardWeapon}
+          onInstall={installPart}
+          onDiscardPart={discardPart}
+        />
+      )}
 
       <div className="hud">
         <h1>sceggle</h1>
