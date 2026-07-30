@@ -95,6 +95,14 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     fov?: number;
     hearing?: number;
   }
+  // What a mob WIELDS is a detuned copy of its roll (they outnumber you
+  // ~30:1 — full listed damage was near-one-shot territory); what it DROPS
+  // stays the full-strength original. Same combat code path, stats differ.
+  const mobTuned = (w: WeaponDef): WeaponDef => ({
+    ...w,
+    damage: Math.max(1, Math.round(w.damage * 0.65)),
+  });
+
   const makeMob = (cell: { x: number; z: number }, s: MobSpec): Entity => ({
     mob: true,
     id: nextId++,
@@ -104,7 +112,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     hitFlash: 0,
     resist: s.resist ?? { knockback: 0, stagger: 0 },
     moveSpeed: s.speed,
-    weapon: s.weapon,
+    weapon: s.weapon && mobTuned(s.weapon),
     drops: s.drops,
     volatile: s.volatile,
     spawner: s.spawner,
@@ -199,7 +207,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
         const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
         const n = 2 + ROT.RNG.getUniformInt(0, 1);
         for (let i = 0; i < n; i++) {
-          const weapon = generateWeapon('ranged', 1, 8 + 2 * area);
+          const weapon = generateWeapon('ranged', 1, 6 + 2 * area);
           list.push(
             makeMob(near(center), {
               level: 1,
@@ -229,7 +237,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
               hp: 1,
               speed: 4.2,
               tint: '#ff8c42',
-              volatile: { radius: 1.7, damage: 3 + area, fuse: 0.55, lit: false },
+              volatile: { radius: 1.7, damage: 2 + area, fuse: 0.55, lit: false },
               drops: rollDrops(undefined, 0, 0.2),
               // Twitchy: short, wide, and sharp-eared.
               sight: 4,
@@ -267,7 +275,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
         const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
         const level = Math.min(3, 1 + Math.ceil(area / 2));
         // Elites carry guns: the marquee drops of a ranged-only player.
-        const weapon = generateWeapon('ranged', level, weaponBudget(level) + 6 + 2 * area);
+        const weapon = generateWeapon('ranged', level, weaponBudget(level) + 3 + area);
         // Elites come pre-constructed: a mechanism already in a fitting —
         // you see the behavior used against you before you loot it.
         if (weapon.slots > 0) weapon.mechanisms.push(generateMechanism(partTier));
@@ -317,16 +325,26 @@ export default function App() {
   const [packOpen, setPackOpen] = useState(false);
   useEffect(initTouch, []);
 
+  // Ortho zoom is CSS pixels per world unit. 42 suits a desktop monitor;
+  // on a phone that renders a mob at ~3 mm. Scale so the view spans ~15
+  // world units across the width — physically chunky, still enough lookahead
+  // to kite (your 7-unit vision just fits ahead of you).
+  const zoom = useConstant(() =>
+    isCoarse ? Math.min(64, Math.max(46, Math.round(window.innerWidth / 15))) : 42,
+  );
+
   const playerEntity = useConstant<Entity>(() => ({
     player: true,
-    health: { current: 20, max: 20 },
+    // Sized for the horde economy: chip damage from a pack must be
+    // survivable long enough to thin it.
+    health: { current: 30, max: 30 },
     hitFlash: 0,
     stun: 0,
     pos: { x: 0, z: 0 }, // placed at the area entry by the effect below
     vel: { x: 0, z: 0 },
     radius: 0.35,
   }));
-  const [playerHp, setPlayerHp] = useState(20);
+  const [playerHp, setPlayerHp] = useState(30);
 
   // Entering an area: player starts at the west-edge entry, mobs roll fresh.
   const [mobEntities, setMobEntities] = useState<Entity[]>([]);
@@ -472,7 +490,7 @@ export default function App() {
         <OrthographicCamera
           makeDefault
           position={[cellToWorld(map.entry.x), 12, cellToWorld(map.entry.z) + 8]}
-          zoom={42}
+          zoom={zoom}
           near={0.1}
           far={200}
         />

@@ -26,7 +26,11 @@ export interface StickVisual {
 
 const RADIUS = 70; // px from base to full deflection
 const DEAD_ZONE = 0.18; // fraction of RADIUS
-const FIRE_DEFLECT = 0.35; // aim deflection that holds the trigger
+/** Trigger hysteresis: firing starts past ON and keeps going until the
+ *  stick drops under OFF (or the thumb lifts). A single threshold made
+ *  fire flicker off whenever the thumb eased toward center mid-hold. */
+const FIRE_ON = 0.22;
+const FIRE_OFF = 0.1;
 
 export const touch = {
   /** Latched on the first touch — the input layer is in use. */
@@ -78,7 +82,7 @@ function update(side: 'left' | 'right', px: number, py: number): void {
       touch.aim.x = nx;
       touch.aim.z = ny;
     }
-    touch.aim.fire = mag >= FIRE_DEFLECT;
+    touch.aim.fire = touch.aim.fire ? mag > FIRE_OFF : mag >= FIRE_ON;
   }
 }
 
@@ -106,7 +110,10 @@ export function initTouch(): () => void {
     touch.used = true;
     const side = e.clientX < window.innerWidth / 2 ? 'left' : 'right';
     const t = side === 'left' ? left : right;
-    if (t.id !== null) return; // that thumb is already down
+    // If the side looks claimed, the old pointer is a leak (mobile browsers
+    // sometimes drop pointerup on gesture interruptions). The real thumb is
+    // the one touching now — steal the slot, or the stick is dead forever.
+    if (t.id !== null) release(side);
     t.id = e.pointerId;
     t.baseX = e.clientX;
     t.baseY = e.clientY;
