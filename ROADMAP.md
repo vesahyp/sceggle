@@ -26,34 +26,46 @@ they land (git history is the changelog).
 
 ## Design direction (decided)
 
-- **Feel: Minecraft Dungeons / Diablo, not NetHack.** Real-time hack-slash on
-  an open seeded overworld — scattered obstacle clusters to kite around, not
-  rooms-and-corridors. Loot-driven itemization.
-- **Weapons are 50/50 melee and ranged.** Every drop pool keeps that balance;
-  ranged fires projectiles at the cursor.
+- **Feel: horde hack-slash — kill lots of enemies in various ways with
+  weapons you construct.** Real-time on an open seeded overworld — scattered
+  obstacle clusters to kite around. Pack-based spawning (swarms, rushers,
+  snipers, exploders, spawners, elites), loot-driven itemization.
+- **The player is ranged-only.** Guns fire at the cursor / aim stick; melee
+  exists solely on the mob side, and only gun-carriers drop weapons.
+- **Weapons are constructed, not just rolled:** guns roll fitting slots;
+  **cogs** (mechanism parts) drop and install to change what an attack DOES
+  — chain, scald, pull, corpse-burst, ricochet, split. Behaviors are shared
+  player/mob (one combat system).
+- **Stealth reads on the ground:** every mob rolls a directional vision cone
+  and a hearing radius, both drawn truthfully; idle mobs wander. Player
+  footsteps ripple as the noise-to-be.
 - **Setting: steampunk — deferred.** Placeholder capsules/boxes and generic
-  ids (`mob<level>`, `weapon-<type>-<level>`) until the loop proves out. No
-  naming/theming work before then.
+  ids (`mob<level>`, `weapon-<type>-<level>`, `cog-<type>-<power>`) until
+  the loop proves out. No naming/theming work before then.
 - **Itemization: Diablo/Borderlands hybrid.**
   - **Rarity ladder:** grey → green → blue → yellow → orange. Rarity drives
-    the stat budget **and** the number of attachment points (0/1/2/3/4).
-  - **Fittings & cogs** (steampunk for "sockets" and "gems/mods"): weapons
-    roll colored **fittings**; **cogs** are dropped components with one
-    color; a cog installs only into a fitting of the same color — *yellow
-    goes to yellow*. Cog effects are stat/behaviour modifiers (±damage,
-    +knockback, +projectile speed, on-hit stagger, …); higher colors gate
-    stronger effect pools.
-  - Naming: *fitting* is a real machinist's term (brass fittings) and reads
-    steampunk without being cute; *cog* is the iconic steampunk unit.
-    "Gadget" stays reserved for a possible active-use item class.
+    the stat budget **and** the fitting count (today fittings come flat from
+    level; rarity should take that over).
+  - **Color-matched fittings** (cog installs only into a same-color fitting)
+    remain an open idea to deepen construction once rarity ships.
 
 ## Now / next
 
-### 1. Inventory & equip UI
-- Inventory as React DOM beside the canvas (the R3F DOM-alongside-canvas
-  payoff). Pickups go into the inventory; equip/compare/drop from the panel.
-  Walk-over-to-equip and the dev weapon-reroll key retire.
-- **Done when:** you can hold more than one weapon and choose what's in hand.
+### 1. Mobile twin-stick controls & layout
+- Primary device is a phone (landscape). Two floating virtual sticks:
+  left half = move, right half = aim, deflection past the dead zone holds
+  fire. Per twin-stick usability research: sticks spawn at the touch point,
+  render only while touched, keep tracking outside their radius, and never
+  shift inward at screen edges.
+- Mild aim assist (snap a few degrees to the nearest mob) — thumb precision
+  needs it.
+- HUD compresses to an info strip (HP/area/kills, combo stays top-center);
+  the pack panel becomes a sim-pausing modal sheet behind a top-right
+  button. Desktop keeps keyboard/mouse and the persistent panel.
+- Web plumbing: touch-action none, per-touch-id tracking, viewport-fit
+  cover + safe-area insets, 100dvh, PWA manifest with landscape lock.
+- **Done when:** an area is beatable on a phone with two thumbs and the
+  pack is usable mid-run.
 
 ### 2. Main menu, character creation & world seed
 - A main menu before the game: new run rolls (or lets you enter) a **world
@@ -74,16 +86,14 @@ they land (git history is the changelog).
   standoff) into the spawn roll.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 4. Footsteps & noise
-- **Footstep weight** becomes a property of every moving thing (player and
-  mobs): moving emits noise whose radius scales with weight and speed.
-- Mob *hearing* reacts to that noise instead of raw proximity — standing
-  still is quiet; sprinting past a wall isn't.
-- Visualize it: expanding ripple rings from movers when they step, and
-  hearing ranges shown like the sight rings are today.
+### 4. Footsteps & noise (the mechanic)
+- The visualization shipped (player footstep ripples, mob hearing rings);
+  now make it true: **footstep weight** on every mover, noise radius scaling
+  with weight and speed, and mob *hearing* reacting to emitted noise instead
+  of raw proximity — standing still is quiet; sprinting past a wall isn't.
 - Actual footstep audio (first sound in the game).
-- **Done when:** you can sneak past a mob by moving carefully, and see
-  exactly why it did or didn't hear you.
+- **Done when:** the ripple you see IS the noise mobs hear — walking slowly
+  past a hearing ring that sprinting would have tripped.
 
 ### 5. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
@@ -95,33 +105,25 @@ they land (git history is the changelog).
 ### 6. Rarity on drops
 - Weapons and mobs are already point-budget generated (`generateWeapon`,
   `App.spawnMobs`); rarity layers on top: a drop rolls a rarity tier from
-  the ladder via seeded RNG, granting bonus budget and driving the
-  ground-marker color (and fitting count, later).
+  the ladder via seeded RNG, granting bonus budget, driving the
+  ground-marker color, and taking over the fitting count (today it comes
+  flat from level).
 - **Done when:** two drops from the same mob level can differ in rarity,
   visibly.
 
-### 7. Fittings & cogs v0
-- Weapons roll colored fittings by rarity; cogs drop as items; an install UI
-  enforces color-match. Ship two cog effects end-to-end (e.g. +knockback,
-  +projectile speed) so the choice is real.
-- **Done when:** slotting a cog visibly changes how a weapon plays.
-
 ## Later
 
-### 8. Armor & damage model
+### 7. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weapon-driven; armor only mitigates HP loss.
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 9. Content & feel
-- Enemy variety beyond level scaling (component-composed): rusher, sniper,
-  heavy — distinct AI, not just stat spreads.
-- More hit feedback: screen shake, mob death effect.
-- A lighting/readability pass — the field is murky and rarity colors will
-  need to read at a glance.
+### 8. Lighting & readability pass
+- The field is murky; rarity colors and the sense-visualization layers
+  (cones, rings, ripples) need to read at a glance without adding clutter.
 
-### 10. World variety
+### 9. World variety
 - Biome variation of the scatter generator (density, cluster size, palette),
   bought from the same area budget as the roster.
 

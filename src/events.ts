@@ -1,5 +1,5 @@
 import type { Entity } from './ecs';
-import type { WeaponDef } from './weapons';
+import type { MechanismDef, WeaponDef } from './weapons';
 
 /**
  * One-way bridge from the simulation to React. The sim runs imperatively in
@@ -11,9 +11,17 @@ import type { WeaponDef } from './weapons';
 export type GameEvent =
   | { type: 'mobDied'; mob: Entity }
   | { type: 'pickup'; weapon: WeaponDef }
+  /** Walked over a mechanism part — App installs it into the held weapon. */
+  | { type: 'pickupPart'; part: MechanismDef }
+  /** A spawner released pre-rolled mobs — App mounts their views. */
+  | { type: 'mobsSpawned'; mobs: Entity[] }
   | { type: 'exitReached' }
   /** A hit landed — drives floating damage numbers and the HP readout. */
   | { type: 'damage'; x: number; z: number; amount: number; target: 'mob' | 'player' }
+  /** Visual-only: a detonation happened (corpse-burst, exploder). */
+  | { type: 'explosion'; x: number; z: number; radius: number }
+  /** Visual-only: chain lightning arced between two points. */
+  | { type: 'arc'; x1: number; z1: number; x2: number; z2: number }
   | { type: 'playerDied' };
 
 type Listener = (e: GameEvent) => void;

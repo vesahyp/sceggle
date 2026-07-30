@@ -1,5 +1,5 @@
 import { World } from 'miniplex';
-import type { WeaponDef } from './weapons';
+import type { MechanismDef, WeaponDef } from './weapons';
 
 /**
  * The Entity is the whole game-object vocabulary in one place. Every field is
@@ -50,17 +50,50 @@ export interface Entity {
    *  steer — the incoming knockback plays out and decays instead. */
   stun?: number;
 
-  /** An in-flight melee swing: the strike point sweeps the arc over
-   *  `duration`, hitting each mob at most once, only where the blade
-   *  actually is (see systems.stepMeleeSwings). Cleared when done. */
-  melee?: {
+  /** An in-flight attack, either kind: `t` runs over windup + duration.
+   *  During `windup` nothing can connect — the blade winds back, the shot is
+   *  drawn — that's the telegraph, and a staggering hit cancels it. Then
+   *  melee sweeps the strike point over `duration` (hitting each target at
+   *  most once, only where the blade actually is), while ranged releases its
+   *  projectiles the moment windup ends and rides out `duration` as
+   *  recovery (see systems.stepAttacks). Cleared when done. */
+  attack?: {
     t: number;
+    windup: number;
     duration: number;
+    /** Ranged: latches once the projectiles have left. */
+    fired?: boolean;
     struck: Entity[];
   };
 
   /** Power tier of a mob — scales stats and the loot it drops. */
   level?: number;
+
+  /** Body tint, rolled at spawn (also colors the corpse it leaves). */
+  tint?: string;
+
+  /** What this mob leaves behind, pre-rolled at spawn (deterministic; the
+   *  kill itself draws no RNG). Absent = drops nothing. */
+  drops?: { weapon?: WeaponDef; part?: MechanismDef };
+
+  /** Walking bomb: once alerted and close, it lights its fuse, halts, and
+   *  detonates — damaging BOTH sides, so packs of these chain off each
+   *  other. Dying to damage also sets it off. */
+  volatile?: { radius: number; damage: number; fuse: number; lit: boolean };
+
+  /** Stationary mob that releases pre-rolled chaff while alerted. The
+   *  spawnees were generated with the area (determinism); the sim only picks
+   *  when and where they step out. */
+  spawner?: { interval: number; next: number; pending: Entity[] };
+
+  /** Damage-over-time burn (the `scald` mechanism). Ticks every `interval`
+   *  seconds until `until` (a countdown). Queried — attach via
+   *  world.addComponent, never plain assignment. */
+  burning?: { damage: number; interval: number; next: number; until: number };
+
+  /** A body in flight: launched by the killing blow, tumbles, fades, gone.
+   *  Pure spectacle — corpses collide with nothing. */
+  corpse?: { t: number; life: number; tint: string; size: number; spin: number };
 
   /** Fractional resistances, 0 (none) → 1 (immune). Bought from the mob's
    *  spawn point pool, so same-level mobs still differ. Incoming knockback
@@ -70,9 +103,10 @@ export interface Entity {
   /** Steering speed (world units/s) — bought from the mob's spawn pool. */
   moveSpeed?: number;
 
-  /** Presence makes the entity a ground pickup: the player equips `weapon`
-   *  by walking over it. */
-  loot?: { weapon: WeaponDef };
+  /** Presence makes the entity a ground pickup. Exactly one of the two:
+   *  a weapon (walk over to equip) or a mechanism part (walk over to install
+   *  into the equipped weapon — skipped, left lying, if incompatible). */
+  loot?: { weapon?: WeaponDef; part?: MechanismDef };
 
   /** Presence makes the entity a projectile: it flies along `vel` until it
    *  hits an obstacle or runs out of range. A mob hit stops it too, unless
@@ -89,15 +123,25 @@ export interface Entity {
     maxRange: number;
     traveled: number;
     pierce: boolean;
+    /** Wall bounces left (the `ricochet` mechanism). */
+    bounces: number;
+    /** Fragments to shatter into on impact (the `split` mechanism); 0 = none. */
+    splits: number;
+    /** On-hit mechanisms carried from the firing weapon (chain, scald, …). */
+    mechanisms: MechanismDef[];
     /** Mobs already hit — a piercing projectile hurts each mob only once. */
     struck: Entity[];
   };
 
   /**
    * Enemy AI state. Presence makes a mob perceive and hunt the player: a mob
-   * notices the player by *sight* (within `sight` distance AND unobstructed
-   * line of sight) or by *hearing* (within `hearing` distance, obstacles or
-   * not). Once `alerted` it chases for good: a system pathfinds toward the
+   * notices the player by *sight* (within `sight` distance, inside the `fov`
+   * cone around where it's facing, AND unobstructed line of sight) or by
+   * *hearing* (within `hearing` distance, obstacles or not). Vision is
+   * directional and rolled per mob — that's what makes sneaking a mechanic:
+   * the view draws each mob's cone, and you slip past behind it. Until
+   * alerted the mob wanders between nearby points, facing where it walks.
+   * Once `alerted` it chases for good: a system pathfinds toward the
    * player's cell and steers the entity along the route.
    */
   brain?: {
@@ -105,8 +149,10 @@ export interface Entity {
     path: Array<{ x: number; z: number }>;
     /** Seconds until the next A* recompute. */
     repathIn: number;
-    /** See distance (needs clear line of sight). */
+    /** See distance (needs facing + clear line of sight). */
     sight: number;
+    /** Half-angle (radians) of the vision cone around `aim`. */
+    fov: number;
     /** Hear distance (works through obstacles). */
     hearing: number;
     /** Latched once the player is noticed (or the mob is hit). */
@@ -117,6 +163,10 @@ export interface Entity {
     attackIn: number;
     /** Seconds of "don't steer" after a hit, so knockback plays out. */
     stagger: number;
+    /** Idle roaming: current destination (none = resting) and the seconds
+     *  until the next decision roll. */
+    wanderTarget?: { x: number; z: number };
+    wanderIn: number;
   };
 }
 
@@ -128,6 +178,8 @@ export const players = world.with('player', 'pos', 'vel');
 export const mobs = world.with('mob', 'pos', 'vel');
 export const projectiles = world.with('projectile', 'pos', 'vel');
 export const loots = world.with('loot', 'pos');
+export const corpses = world.with('corpse', 'pos', 'vel');
+export const burners = world.with('burning', 'health', 'pos');
 
 // Dev-only: expose the world for debugging in the browser console.
 if (import.meta.env.DEV) {

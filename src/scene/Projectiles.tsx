@@ -3,8 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import { Color, InstancedMesh, Object3D } from 'three';
 import { projectiles } from '../ecs';
 
-/** Instance capacity — plenty at one shot per swing. */
-const MAX = 64;
+/** Instance capacity — multishot, splits, and a field of sniper mobs add up. */
+const MAX = 256;
 const BODY_Y = 0.65;
 
 const dummy = new Object3D();

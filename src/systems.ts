@@ -1,7 +1,7 @@
 import * as ROT from 'rot-js';
-import { world, players, mobs, projectiles, loots, type Entity } from './ecs';
+import { world, players, mobs, projectiles, loots, corpses, burners, type Entity } from './ecs';
 import { cellToWorld, worldToCell, moveCircle, circleOverlapsWall, hasLineOfSight, type GameMap } from './worldmap';
-import { generateWeapon } from './weapons';
+import type { MechanismDef, WeaponDef } from './weapons';
 import { emitGameEvent } from './events';
 
 const MOB_SPEED = 3.2; // a touch slower than the player, so you can kite
@@ -19,13 +19,66 @@ const PLAYER_KB_FACTOR = 0.6;
 const PLAYER_STUN_CAP = 0.45;
 const DEFAULT_RADIUS = 0.3;
 
-/** Half-angle of the swing arc (70° to each side of the aim) — exported so
- *  the range indicator can show the true hit cone. */
-export const SWING_HALF_ARC_RAD = (70 * Math.PI) / 180;
 /** Half-thickness of the melee strike band: the blade connects only within
  *  this distance of its sweep radius. Long weapons therefore have a dead
  *  zone up close — a pole can't hit someone hugging you. */
 export const MELEE_BAND = 0.55;
+/** Attacking is a commitment: attackers of either kind move at this fraction
+ *  of their speed from windup through the end of the swing/recovery. */
+const ATTACK_MOVE_FACTOR = 0.45;
+/** Ranged aim time before the shot releases (the interruptible window). */
+const RANGED_AIM = 0.15;
+/** Landed hits freeze the whole sim for a beat (a touch longer on a kill) —
+ *  classic hit-stop, so impacts punctuate instead of blending together. */
+const HIT_STOP = 0.05;
+const HIT_STOP_KILL = 0.09;
+let hitStop = 0;
+/** Angle between fanned projectiles of a multishot weapon. */
+const MULTISHOT_SPREAD = 0.12;
+
+/** View-feedback channel the render layer reads and decays: kills and
+ *  detonations pump `shake`, the camera trembles by it. Not sim state. */
+export const viewFx = { shake: 0 };
+
+/** Look up an installed mechanism by type. */
+const mech = (mechs: MechanismDef[] | undefined, type: MechanismDef['type']) =>
+  mechs?.find((m) => m.type === type);
+
+/**
+ * Where a hit came from, threaded down to the damage sinks so mechanisms can
+ * fire: `mechanisms` drive on-hit effects (scald, chain) and on-kill burst;
+ * `from` anchors pull/chain geometry; `chained`/`dot` stop chain-off-chain
+ * recursion and per-tick hit-stop spam.
+ */
+interface HitCtx {
+  faction: 'player' | 'mob';
+  mechanisms?: MechanismDef[];
+  from?: { x: number; z: number };
+  chained?: boolean;
+  dot?: boolean;
+}
+
+/**
+ * Detonations queue instead of recursing: a corpse-burst kill can burst the
+ * next corpse (the chain-reaction loop), so requests pile up here and drain
+ * in one pass per tick — bounded, since each mob dies once.
+ */
+interface Explosion {
+  x: number;
+  z: number;
+  radius: number;
+  damage: number;
+  /** Which sides it hurts. Corpse-burst: mobs only. Exploders: both. */
+  hitMobs: boolean;
+  hitPlayer: boolean;
+  /** Mechanisms of the weapon that caused it — kills re-burst, chains carry. */
+  mechanisms?: MechanismDef[];
+}
+const explosionQueue: Explosion[] = [];
+
+function queueExplosion(e: Explosion): void {
+  explosionQueue.push(e);
+}
 
 /** The hit band a melee weapon's strikes land in, as shown to the player
  *  (widened by a nominal mob body radius). */
@@ -42,9 +95,17 @@ export function meleeHitBand(reach: number): { inner: number; outer: number } {
  * positions) with the frame delta.
  */
 export function stepSimulation(map: GameMap, delta: number): void {
+  // Hit-stop: the whole world holds its breath for a beat after an impact.
+  if (hitStop > 0) {
+    hitStop -= delta;
+    return;
+  }
   updateEnemyAI(map, delta);
+  stepVolatiles(delta);
+  stepSpawners(map, delta);
   stepMobAttacks(map, delta);
-  stepMeleeSwings(delta);
+  stepAttacks(delta);
+  separateMobs();
   for (const e of players) {
     if (e.hitFlash) e.hitFlash = Math.max(0, e.hitFlash - delta);
     // Hit-stun: input is ignored (Player view checks `stun`), the shove decays.
@@ -54,21 +115,252 @@ export function stepSimulation(map: GameMap, delta: number): void {
       e.vel.x *= k;
       e.vel.z *= k;
     }
-    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, delta);
+    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, e.attack ? delta * ATTACK_MOVE_FACTOR : delta);
   }
-  for (const e of mobs) moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, delta);
+  for (const e of mobs) {
+    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, e.attack ? delta * ATTACK_MOVE_FACTOR : delta);
+  }
   stepProjectiles(map, delta);
+  tickBurning(delta);
+  processExplosions();
+  stepCorpses(map, delta);
   checkPickups();
   checkExit(map);
 }
 
 /**
+ * Soft crowd separation: overlapping mobs shove each other's velocity apart
+ * so a horde arrives as a mob-shaped wave instead of a single stacked blob.
+ * O(n²) over live mobs — fine at horde counts, and only pairs actually
+ * overlapping do any work. The player is exempt: bodies never block you.
+ */
+function separateMobs(): void {
+  const arr = [...mobs];
+  for (let i = 0; i < arr.length; i++) {
+    const a = arr[i];
+    const ra = a.radius ?? DEFAULT_RADIUS;
+    for (let j = i + 1; j < arr.length; j++) {
+      const b = arr[j];
+      const minD = ra + (b.radius ?? DEFAULT_RADIUS) + 0.04;
+      const dx = b.pos.x - a.pos.x;
+      const dz = b.pos.z - a.pos.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= minD * minD) continue;
+      const d = Math.sqrt(d2) || 0.01;
+      // Push velocity, not position — moveCircle keeps walls authoritative.
+      const push = ((minD - d) / minD) * 6;
+      const nx = dx / d;
+      const nz = dz / d;
+      a.vel.x -= nx * push;
+      a.vel.z -= nz * push;
+      b.vel.x += nx * push;
+      b.vel.z += nz * push;
+    }
+  }
+}
+
+/**
+ * Exploder behavior: an alerted volatile mob that gets close lights its fuse,
+ * plants itself, and detonates — hurting both sides, so a pack of exploders
+ * chains. The view reads `lit` to strobe the body as the tell.
+ */
+function stepVolatiles(delta: number): void {
+  const player = players.first;
+  for (const mob of [...mobs]) {
+    const v = mob.volatile;
+    if (!v) continue;
+    if (!v.lit) {
+      if (
+        player &&
+        mob.brain?.alerted &&
+        Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) < 1.15
+      ) {
+        v.lit = true;
+      }
+      continue;
+    }
+    // Committed: hold still and count down.
+    mob.vel.x = 0;
+    mob.vel.z = 0;
+    v.fuse -= delta;
+    if (v.fuse > 0) continue;
+    queueExplosion({
+      x: mob.pos.x,
+      z: mob.pos.z,
+      radius: v.radius,
+      damage: v.damage,
+      hitMobs: true,
+      hitPlayer: true,
+    });
+    world.remove(mob);
+    emitGameEvent({ type: 'mobDied', mob });
+  }
+}
+
+/**
+ * Spawner behavior: while alerted, release one pre-rolled spawnee every
+ * `interval` seconds at a clear spot beside the spawner. The entities were
+ * generated with the area; the sim just places them and hands them to React
+ * to mount (mobsSpawned) — the same ownership split as deaths.
+ */
+function stepSpawners(map: GameMap, delta: number): void {
+  for (const mob of mobs) {
+    const s = mob.spawner;
+    if (!s || !mob.brain?.alerted) continue;
+    s.next -= delta;
+    if (s.next > 0) continue;
+    s.next = s.interval;
+    const child = s.pending.shift();
+    if (!child) continue;
+    // First open spot on a ring around the spawner.
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = mob.pos.x + Math.sin(a) * 1.1;
+      const z = mob.pos.z + Math.cos(a) * 1.1;
+      if (!circleOverlapsWall(map, x, z, child.radius ?? DEFAULT_RADIUS)) {
+        child.pos!.x = x;
+        child.pos!.z = z;
+        break;
+      }
+    }
+    child.brain!.alerted = true; // born into the fight
+    emitGameEvent({ type: 'mobsSpawned', mobs: [child] });
+  }
+}
+
+/** Scald ticks: burn damage on a timer until the countdown runs out. DoT
+ *  skips hit-stop and knockback — it's a state, not an impact. */
+function tickBurning(delta: number): void {
+  for (const e of [...burners]) {
+    const b = e.burning;
+    b.until -= delta;
+    b.next -= delta;
+    if (b.next <= 0) {
+      b.next += b.interval;
+      if (e.player) {
+        emitGameEvent({ type: 'damage', x: e.pos.x, z: e.pos.z, amount: b.damage, target: 'player' });
+        if (e.health.current > 0) {
+          e.health.current -= b.damage;
+          if (e.health.current <= 0) emitGameEvent({ type: 'playerDied' });
+        }
+      } else {
+        damageMob(e, b.damage, { faction: 'player', dot: true });
+        if (!world.has(e)) continue; // burned to death
+      }
+    }
+    if (b.until <= 0) world.removeComponent(e, 'burning');
+  }
+}
+
+/** Attach (or refresh) a scald burn. Queried component — addComponent only. */
+function igniteScald(target: Entity, m: MechanismDef): void {
+  const damage = 1 + Math.floor(m.power / 3);
+  const until = 1.5 + 0.4 * m.power;
+  if (target.burning) {
+    target.burning.damage = Math.max(target.burning.damage, damage);
+    target.burning.until = Math.max(target.burning.until, until);
+  } else {
+    world.addComponent(target, 'burning', { damage, interval: 0.5, next: 0.5, until });
+  }
+}
+
+/**
+ * Chain lightning: after a hit lands on a mob, arc to the nearest un-hit mob
+ * and keep jumping, damage decaying per hop. Player-side only — against a
+ * lone player there is nothing to arc to. The chained flag keeps a jump from
+ * re-proccing its own chain.
+ */
+function chainLightning(start: Entity, baseDamage: number, m: MechanismDef, mechs: MechanismDef[]): void {
+  const jumps = 1 + Math.floor(m.power / 2);
+  const carried = mechs.filter((x) => x.type !== 'chain');
+  const struck = new Set<Entity>([start]);
+  let cur = start;
+  let dmg = baseDamage;
+  for (let j = 0; j < jumps; j++) {
+    let next: Entity | undefined;
+    let bestD = 3.2; // arc range
+    for (const other of mobs) {
+      if (struck.has(other)) continue;
+      const d = Math.hypot(other.pos.x - cur.pos!.x, other.pos.z - cur.pos!.z);
+      if (d < bestD) {
+        bestD = d;
+        next = other;
+      }
+    }
+    if (!next) return;
+    dmg = Math.max(1, Math.round(dmg * 0.6));
+    emitGameEvent({ type: 'arc', x1: cur.pos!.x, z1: cur.pos!.z, x2: next.pos!.x, z2: next.pos!.z });
+    struck.add(next);
+    damageMob(next, dmg, { faction: 'player', mechanisms: carried, chained: true });
+    cur = next;
+  }
+}
+
+/**
+ * Drain the detonation queue: each explosion shoves and damages everything
+ * of the targeted sides within its radius (linear falloff, never below 1),
+ * and kills it causes may queue further explosions — processed in the same
+ * pass, so chain reactions resolve within the tick.
+ */
+function processExplosions(): void {
+  for (let guard = 0; explosionQueue.length > 0 && guard < 64; guard++) {
+    const ex = explosionQueue.shift()!;
+    emitGameEvent({ type: 'explosion', x: ex.x, z: ex.z, radius: ex.radius });
+    viewFx.shake = Math.min(0.5, viewFx.shake + 0.18);
+    hitStop = Math.max(hitStop, HIT_STOP);
+
+    if (ex.hitMobs) {
+      const victims = [...mobs].filter(
+        (m) => Math.hypot(m.pos.x - ex.x, m.pos.z - ex.z) <= ex.radius + (m.radius ?? DEFAULT_RADIUS),
+      );
+      for (const m of victims) {
+        const dx = m.pos.x - ex.x;
+        const dz = m.pos.z - ex.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const dmg = Math.max(1, Math.round(ex.damage * (1 - 0.5 * Math.min(1, d / ex.radius))));
+        applyHit(m, dx / d, dz / d, 2.5, 0.25);
+        damageMob(m, dmg, { faction: 'player', mechanisms: ex.mechanisms, chained: true });
+      }
+    }
+    if (ex.hitPlayer) {
+      const player = players.first;
+      if (player) {
+        const dx = player.pos.x - ex.x;
+        const dz = player.pos.z - ex.z;
+        const d = Math.hypot(dx, dz);
+        if (d <= ex.radius + (player.radius ?? DEFAULT_RADIUS)) {
+          const dn = d || 1;
+          const dmg = Math.max(1, Math.round(ex.damage * (1 - 0.5 * Math.min(1, d / ex.radius))));
+          damagePlayer(player, dmg, dx / dn, dz / dn, 3, 0.3);
+        }
+      }
+    }
+  }
+}
+
+/** Corpses fly out with the killing shove, tumble, and evaporate. They still
+ *  slide against walls (moveCircle) so bodies don't sink into rocks. */
+function stepCorpses(map: GameMap, delta: number): void {
+  for (const c of [...corpses]) {
+    c.corpse.t += delta;
+    if (c.corpse.t >= c.corpse.life) {
+      world.remove(c);
+      continue;
+    }
+    const k = Math.exp(-3 * delta);
+    c.vel.x *= k;
+    c.vel.z *= k;
+    moveCircle(map, c.pos, c.vel, 0.2, delta);
+  }
+}
+
+/**
  * Mob offense: an alerted, un-staggered mob attacks the player on its
- * weapon's rate — with EXACTLY the player's mechanics. Melee starts the
- * same swept swing (strike band, dead zone, sub-stepped arc); ranged fires
- * the same projectile pipeline. The only mob-specific part is the decision
- * of *when*: melee waits until the target is inside the strike band, so a
- * pole mob won't whiff at someone hugging it.
+ * weapon's rate — with EXACTLY the player's mechanics. Both kinds start the
+ * same windup-telegraphed attack (melee sweeps the strike band, ranged
+ * releases its shot when the draw completes). The only mob-specific part is
+ * the decision of *when*: melee waits until the target is inside the strike
+ * band, so a pole mob won't whiff at someone hugging it.
  */
 function stepMobAttacks(map: GameMap, delta: number): void {
   const player = players.first;
@@ -81,36 +373,15 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     brain.attackIn -= delta;
     if (!brain.alerted || brain.stagger > 0 || brain.attackIn > 0) continue;
 
-    const dx = player.pos.x - mob.pos.x;
-    const dz = player.pos.z - mob.pos.z;
-    const dist = Math.hypot(dx, dz) || 1;
-    const nx = dx / dist;
-    const nz = dz / dist;
+    const dist = Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) || 1;
 
     if (weapon.kind === 'melee') {
       if (Math.abs(dist - weapon.reach) > MELEE_BAND + (player.radius ?? DEFAULT_RADIUS)) continue;
-      brain.attackIn = 1 / weapon.rate;
-      startSwing(mob, weapon);
     } else {
       if (dist > weapon.reach || !hasLineOfSight(map, mob.pos, player.pos)) continue;
-      brain.attackIn = 1 / weapon.rate;
-      world.add({
-        projectile: {
-          faction: 'mob',
-          damage: weapon.damage,
-          knockback: weapon.knockback,
-          stagger: weapon.stagger,
-          speed: weapon.speed,
-          maxRange: weapon.reach,
-          traveled: 0,
-          pierce: false, // vs a single player, pierce is meaningless
-          struck: [],
-        },
-        pos: { x: mob.pos.x + nx * 0.6, z: mob.pos.z + nz * 0.6 },
-        vel: { x: nx * weapon.speed, z: nz * weapon.speed },
-        radius: weapon.hitRadius,
-      });
     }
+    brain.attackIn = 1 / weapon.rate;
+    startAttack(mob, weapon);
   }
 }
 
@@ -126,13 +397,19 @@ function damagePlayer(
   dirZ: number,
   knockback: number,
   stagger: number,
+  ctx?: HitCtx,
 ): void {
   player.hitFlash = 0.2;
   const kb = shoveVelocity(knockback) * PLAYER_KB_FACTOR;
   player.vel!.x = dirX * kb;
   player.vel!.z = dirZ * kb;
   player.stun = Math.min(PLAYER_STUN_CAP, Math.max(player.stun ?? 0, stagger));
+  cancelWindup(player);
+  hitStop = Math.max(hitStop, HIT_STOP);
   emitGameEvent({ type: 'damage', x: player.pos!.x, z: player.pos!.z, amount, target: 'player' });
+
+  const scald = mech(ctx?.mechanisms, 'scald');
+  if (scald) igniteScald(player, scald);
 
   const h = player.health;
   if (!h || h.current <= 0) return;
@@ -140,7 +417,8 @@ function damagePlayer(
   if (h.current <= 0) emitGameEvent({ type: 'playerDied' });
 }
 
-/** Walking over a loot drop equips it (inventory is a roadmap item). */
+/** Walking over a loot drop collects it into the inventory (App decides
+ *  nothing about equipping — grabbing loot mid-fight is always safe). */
 function checkPickups(): void {
   const player = players.first;
   if (!player) return;
@@ -151,7 +429,8 @@ function checkPickups(): void {
   }
   for (const item of grabbed) {
     world.remove(item);
-    emitGameEvent({ type: 'pickup', weapon: item.loot!.weapon });
+    if (item.loot!.part) emitGameEvent({ type: 'pickupPart', part: item.loot!.part });
+    else emitGameEvent({ type: 'pickup', weapon: item.loot!.weapon! });
   }
 }
 
@@ -185,104 +464,270 @@ function applyHit(mob: Entity, dirX: number, dirZ: number, knockback: number, st
   mob.vel!.x = dirX * kb;
   mob.vel!.z = dirZ * kb;
   if (mob.brain) mob.brain.stagger = Math.max(mob.brain.stagger, stagger * (1 - resist.stagger));
+  cancelWindup(mob);
+}
+
+/** A hit interrupts an attack still in its windup — the telegraph is the
+ *  window to break it. A strike already sweeping (or a shot already
+ *  released) carries through. */
+function cancelWindup(entity: Entity): void {
+  if (entity.attack && entity.attack.t < entity.attack.windup) entity.attack = undefined;
 }
 
 /**
- * Apply damage to a mob: getting hit always alerts it, and at 0 HP it dies —
- * removed from the world (React unmounts its view via the mobDied event) and
- * its loot hits the ground: the very weapon it was holding (rolled from its
- * spawn pool), so what you see it carry is what it drops.
+ * Apply damage to a mob: getting hit alerts it AND its packmates nearby
+ * (hordes surge together), and at 0 HP it dies — removed from the world
+ * (React unmounts its view via the mobDied event), launching a corpse with
+ * the killing shove and dropping whatever was pre-rolled at its spawn.
+ * On-hit mechanisms (scald, chain) and on-kill ones (burst, a volatile's own
+ * charge) fire from the hit context.
  */
-function damageMob(mob: Entity, amount: number): void {
-  if (mob.brain) mob.brain.alerted = true;
+function damageMob(mob: Entity, amount: number, ctx: HitCtx): void {
+  if (mob.brain && !mob.brain.alerted) {
+    mob.brain.alerted = true;
+    for (const other of mobs) {
+      if (other.brain && Math.hypot(other.pos.x - mob.pos!.x, other.pos.z - mob.pos!.z) < 5) {
+        other.brain.alerted = true;
+      }
+    }
+  }
   mob.hitFlash = 0.2; // the view flashes the body white — "hit registered"
+  if (!ctx.dot) hitStop = Math.max(hitStop, HIT_STOP);
   emitGameEvent({ type: 'damage', x: mob.pos!.x, z: mob.pos!.z, amount, target: 'mob' });
-  if (!mob.health) return;
-  mob.health.current -= amount;
-  if (mob.health.current > 0) return;
 
+  const scald = mech(ctx.mechanisms, 'scald');
+  if (scald && world.has(mob)) igniteScald(mob, scald);
+
+  if (!mob.health) return;
+  const alive = mob.health.current > 0;
+  mob.health.current -= amount;
+
+  const chain = mech(ctx.mechanisms, 'chain');
+  if (alive && chain && !ctx.chained && ctx.faction === 'player') {
+    chainLightning(mob, amount, chain, ctx.mechanisms!);
+  }
+
+  if (mob.health.current > 0) return;
+  if (!alive) return; // already dying this tick (e.g. hit twice by one blast)
+  hitStop = Math.max(hitStop, HIT_STOP_KILL);
+  viewFx.shake = Math.min(0.5, viewFx.shake + 0.05);
+
+  // The body flies with the shove the killing blow just applied.
   world.add({
-    loot: { weapon: mob.weapon ?? generateWeapon('melee', mob.level ?? 1) },
+    corpse: {
+      t: 0,
+      life: 0.85,
+      tint: mob.tint ?? '#5fd35f',
+      size: 1 + 0.18 * ((mob.level ?? 1) - 1),
+      // Deterministic pseudo-random tumble, no RNG stream draw.
+      spin: ((mob.pos!.x * 7.13 + mob.pos!.z * 3.71) % (Math.PI * 2)) - Math.PI,
+    },
     pos: { x: mob.pos!.x, z: mob.pos!.z },
+    vel: { x: mob.vel!.x * 2.2, z: mob.vel!.z * 2.2 },
   });
+
+  if (mob.drops?.weapon || mob.drops?.part) {
+    world.add({
+      loot: mob.drops.part ? { part: mob.drops.part } : { weapon: mob.drops.weapon },
+      pos: { x: mob.pos!.x, z: mob.pos!.z },
+    });
+  }
+
+  // On-kill detonations: the killer weapon's burst, and a walking bomb's
+  // own charge if you pop it before it pops itself.
+  const burst = mech(ctx.mechanisms, 'burst');
+  if (burst && ctx.faction === 'player') {
+    queueExplosion({
+      x: mob.pos!.x,
+      z: mob.pos!.z,
+      radius: 1.3 + 0.18 * burst.power,
+      damage: 2 + burst.power,
+      hitMobs: true,
+      hitPlayer: false,
+      mechanisms: ctx.mechanisms,
+    });
+  }
+  if (mob.volatile) {
+    queueExplosion({
+      x: mob.pos!.x,
+      z: mob.pos!.z,
+      radius: mob.volatile.radius,
+      damage: mob.volatile.damage,
+      hitMobs: true,
+      hitPlayer: true,
+    });
+  }
+
   world.remove(mob);
   emitGameEvent({ type: 'mobDied', mob });
 }
 
 /**
- * Combat system: the player attacks in the direction they're aiming.
- *
- * Melee: starts a swing — a strike point that sweeps the arc over the swing
- * duration and connects only where the blade actually is (stepMeleeSwings).
- *
- * Ranged: spawns a projectile entity flying along the aim; the projectile
- * system handles the rest.
+ * Combat system: the player attacks in the direction they're aiming. Both
+ * kinds go through the shared windup-then-strike attack state — melee sweeps
+ * a strike point over the arc, ranged releases its projectiles the moment
+ * the draw completes (stepAttacks).
  */
 export function performAttack(): void {
   const player = players.first;
   if (!player?.weapon) return;
+  startAttack(player, player.weapon);
+}
 
-  const weapon = player.weapon;
-  const aim = player.aim ?? { x: 0, z: 1 };
-
-  if (weapon.kind === 'ranged') {
+/**
+ * Spawn a weapon's shot — the one shared entry point for players and mobs
+ * alike. A multishot weapon fires `count` projectiles in a fan centered on
+ * the aim.
+ */
+function fireProjectiles(
+  faction: 'player' | 'mob',
+  weapon: WeaponDef,
+  from: { x: number; z: number },
+  dirX: number,
+  dirZ: number,
+): void {
+  const yaw = Math.atan2(dirX, dirZ);
+  const ricochet = mech(weapon.mechanisms, 'ricochet');
+  const split = mech(weapon.mechanisms, 'split');
+  for (let i = 0; i < weapon.count; i++) {
+    const a = yaw + (i - (weapon.count - 1) / 2) * MULTISHOT_SPREAD;
+    const nx = Math.sin(a);
+    const nz = Math.cos(a);
     world.add({
       projectile: {
-        faction: 'player',
+        faction,
         damage: weapon.damage,
         knockback: weapon.knockback,
         stagger: weapon.stagger,
         speed: weapon.speed,
         maxRange: weapon.reach,
         traveled: 0,
-        pierce: weapon.pierce,
+        pierce: faction === 'player' ? weapon.pierce : false, // vs a single player, pierce is meaningless
+        bounces: ricochet ? 1 + Math.floor(ricochet.power / 2) : 0,
+        splits: split ? 3 + Math.floor(split.power / 2) : 0,
+        mechanisms: weapon.mechanisms,
         struck: [],
       },
       // Muzzle offset: spawn outside the shooter's own body.
-      pos: { x: player.pos.x + aim.x * 0.6, z: player.pos.z + aim.z * 0.6 },
-      vel: { x: aim.x * weapon.speed, z: aim.z * weapon.speed },
+      pos: { x: from.x + nx * 0.6, z: from.z + nz * 0.6 },
+      vel: { x: nx * weapon.speed, z: nz * weapon.speed },
       radius: weapon.hitRadius,
     });
-    return;
   }
-
-  startSwing(player, weapon);
 }
 
-/** Begin a melee swing — one at a time; the views animate from this state.
- *  The one shared entry point for players and mobs alike. */
-function startSwing(attacker: Entity, weapon: { rate: number }): void {
-  if (attacker.melee) return;
-  attacker.melee = { t: 0, duration: Math.min(0.18, 0.9 / weapon.rate), struck: [] };
+/** Shatter a projectile into a ring of weaker fragments at its impact point.
+ *  Fragments are plain shots: same faction, half damage, short range, no
+ *  further mechanisms — the fun is the burst, not infinite recursion. */
+function spawnFragments(p: Entity & { projectile: NonNullable<Entity['projectile']>; pos: { x: number; z: number } }): void {
+  const n = p.projectile.splits;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const nx = Math.sin(a);
+    const nz = Math.cos(a);
+    world.add({
+      projectile: {
+        faction: p.projectile.faction,
+        damage: Math.max(1, Math.round(p.projectile.damage * 0.5)),
+        knockback: p.projectile.knockback * 0.5,
+        stagger: p.projectile.stagger * 0.5,
+        speed: 8,
+        maxRange: 3.5,
+        traveled: 0,
+        pierce: false,
+        bounces: 0,
+        splits: 0,
+        mechanisms: [],
+        struck: [...p.projectile.struck],
+      },
+      pos: { x: p.pos.x + nx * 0.15, z: p.pos.z + nz * 0.15 },
+      vel: { x: nx * 8, z: nz * 8 },
+      radius: p.radius ?? 0.08,
+    });
+  }
+}
+
+/** Begin an attack — one at a time; the views animate from this state.
+ *  The one shared entry point for players and mobs, both kinds. The phases
+ *  scale with 1/rate, so a slow weapon telegraphs long and sweeps slow —
+ *  and the whole attack always fits inside the 1/rate cadence. */
+function startAttack(attacker: Entity, weapon: WeaponDef): void {
+  if (attacker.attack) return;
+  attacker.attack =
+    weapon.kind === 'melee'
+      ? {
+          t: 0,
+          windup: Math.min(0.45, Math.max(0.12, 0.25 / weapon.rate)),
+          duration: Math.min(0.6, Math.max(0.15, 0.55 / weapon.rate)),
+          struck: [],
+        }
+      : {
+          // Guns aim fast and RE-ARM slow: the shot leaves early, then the
+          // mechanism cranks back over `duration` — the mechanical read.
+          t: 0,
+          windup: RANGED_AIM,
+          duration: Math.min(1.0, Math.max(0.3, 0.5 / weapon.rate)),
+          struck: [],
+        };
 }
 
 /**
- * Advance every active melee swing — players and mobs run the IDENTICAL
- * mechanic: the strike point travels the ±70° arc (following the attacker's
- * live aim, like the blade does) at the weapon's reach. A target is hit
- * when the point passes within the strike band of its body — so hits land
- * where and *when* the blade is, and a long weapon can't touch anyone
- * inside its dead zone. Sub-stepped so a fast tip can't skip over a body.
- * The only asymmetry is who the swing tests: the opposing side.
+ * Blade angle offset from the aim for an in-flight melee attack: winds back
+ * to +arc over the telegraph, then sweeps +arc → −arc over the strike. The
+ * views draw from this so the blade is exactly where the hits land.
  */
-function stepMeleeSwings(delta: number): void {
-  for (const attacker of players) advanceSwing(attacker, delta);
-  for (const attacker of mobs) advanceSwing(attacker, delta);
+export function bladeAngle(
+  swing: { t: number; windup: number; duration: number } | undefined,
+  arc: number,
+): number {
+  if (!swing) return 0;
+  if (swing.t <= swing.windup) return (swing.t / swing.windup) * arc;
+  return (1 - (2 * (swing.t - swing.windup)) / swing.duration) * arc;
 }
 
-function advanceSwing(attacker: Entity, delta: number): void {
-  const swing = attacker.melee;
+/**
+ * Advance every active attack — players and mobs run the IDENTICAL
+ * mechanic. Ranged: when the windup (the draw) completes, the projectiles
+ * release along the attacker's live aim; `duration` is recovery. Melee:
+ * after the windup telegraph, the strike point travels the weapon's ±arc
+ * (following the attacker's live aim, like the blade does) at the weapon's
+ * reach. A target is hit when the point passes within the strike band of
+ * its body — so hits land where and *when* the blade is, and a long weapon
+ * can't touch anyone inside its dead zone. Sub-stepped so a fast tip can't
+ * skip over a body. The only asymmetry is who the swing tests: the
+ * opposing side.
+ */
+function stepAttacks(delta: number): void {
+  for (const attacker of players) advanceAttack(attacker, delta);
+  for (const attacker of mobs) advanceAttack(attacker, delta);
+}
+
+function advanceAttack(attacker: Entity, delta: number): void {
+  const swing = attacker.attack;
   const weapon = attacker.weapon;
   if (!swing || !weapon) return;
+
+  const total = swing.windup + swing.duration;
+
+  if (weapon.kind === 'ranged') {
+    swing.t = Math.min(total, swing.t + delta);
+    if (!swing.fired && swing.t >= swing.windup) {
+      swing.fired = true;
+      const aim = attacker.aim ?? { x: 0, z: 1 };
+      fireProjectiles(attacker.player ? 'player' : 'mob', weapon, attacker.pos!, aim.x, aim.z);
+    }
+    if (swing.t >= total) attacker.attack = undefined;
+    return;
+  }
 
   const aim = attacker.aim ?? { x: 0, z: 1 };
   const yaw = Math.atan2(aim.x, aim.z);
   const SUB = 3;
 
-  for (let s = 0; s < SUB && swing.t < swing.duration; s++) {
-    swing.t = Math.min(swing.duration, swing.t + delta / SUB);
-    const k = swing.t / swing.duration;
-    const angle = yaw + (0.5 - k) * 2 * SWING_HALF_ARC_RAD;
+  for (let s = 0; s < SUB && swing.t < total; s++) {
+    swing.t = Math.min(total, swing.t + delta / SUB);
+    if (swing.t <= swing.windup) continue; // still telegraphing — can't connect
+    const angle = yaw + bladeAngle(swing, weapon.arc);
     const tx = attacker.pos!.x + Math.sin(angle) * weapon.reach;
     const tz = attacker.pos!.z + Math.cos(angle) * weapon.reach;
 
@@ -294,26 +739,39 @@ function advanceSwing(attacker: Entity, delta: number): void {
         !swing.struck.includes(t) &&
         Math.hypot(t.pos!.x - tx, t.pos!.z - tz) < MELEE_BAND + (t.radius ?? DEFAULT_RADIUS),
     );
+    const ctx: HitCtx = {
+      faction: attacker.player ? 'player' : 'mob',
+      mechanisms: weapon.mechanisms,
+      from: attacker.pos,
+    };
+    const pull = mech(weapon.mechanisms, 'pull');
     for (const target of victims) {
       // Shove along the blade's motion (sweep tangent; the sweep runs from
-      // +arc to -arc, i.e. clockwise) blended with a radial push-out.
+      // +arc to -arc, i.e. clockwise) blended with a radial push-out — or,
+      // with a pull mechanism installed, yanked back toward the attacker.
       const dx = target.pos!.x - attacker.pos!.x;
       const dz = target.pos!.z - attacker.pos!.z;
       const rl = Math.hypot(dx, dz) || 1;
-      const px = -Math.cos(angle) * 0.6 + (dx / rl) * 0.4;
-      const pz = Math.sin(angle) * 0.6 + (dz / rl) * 0.4;
+      let px = -Math.cos(angle) * 0.6 + (dx / rl) * 0.4;
+      let pz = Math.sin(angle) * 0.6 + (dz / rl) * 0.4;
+      let kb = weapon.knockback;
+      if (pull) {
+        px = -dx / rl;
+        pz = -dz / rl;
+        kb = weapon.knockback + pull.power;
+      }
       const pl = Math.hypot(px, pz) || 1;
       swing.struck.push(target);
       if (target.player) {
-        damagePlayer(target, weapon.damage, px / pl, pz / pl, weapon.knockback, weapon.stagger);
+        damagePlayer(target, weapon.damage, px / pl, pz / pl, kb, weapon.stagger, ctx);
       } else {
-        applyHit(target, px / pl, pz / pl, weapon.knockback, weapon.stagger);
-        damageMob(target, weapon.damage);
+        applyHit(target, px / pl, pz / pl, kb, weapon.stagger);
+        damageMob(target, weapon.damage, ctx);
       }
     }
   }
 
-  if (swing.t >= swing.duration) attacker.melee = undefined;
+  if (swing.t >= total) attacker.attack = undefined;
 }
 
 /**
@@ -347,10 +805,20 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     const dist = Math.hypot(pp.x - mob.pos.x, pp.z - mob.pos.z);
 
     // Perception: notice the player by ear (short radius, through walls) or
-    // by eye (longer radius, needs clear line of sight). Latches on.
+    // by eye — inside the sight distance AND the facing cone AND with clear
+    // line of sight. Latches on. Until then, the mob wanders — which is
+    // exactly what swings its cone around and makes sneaking dynamic.
     if (!brain.alerted) {
+      const aim = mob.aim ?? { x: 0, z: 1 };
+      const facing =
+        dist > 1e-4 && (aim.x * (pp.x - mob.pos.x) + aim.z * (pp.z - mob.pos.z)) / dist >= Math.cos(brain.fov);
       brain.alerted =
-        dist <= brain.hearing || (dist <= brain.sight && hasLineOfSight(map, mob.pos, pp));
+        dist <= brain.hearing ||
+        (dist <= brain.sight && facing && hasLineOfSight(map, mob.pos, pp));
+      if (!brain.alerted) {
+        wander(map, mob, delta);
+        continue;
+      }
     }
 
     // Face the player while alerted — swings sweep around this aim, exactly
@@ -360,8 +828,8 @@ function updateEnemyAI(map: GameMap, delta: number): void {
       mob.aim.z = (pp.z - mob.pos.z) / dist;
     }
 
-    // Idle until alerted; hold position once in melee range.
-    if (!brain.alerted || dist <= brain.attackRange) {
+    // Hold position once in attack range.
+    if (dist <= brain.attackRange) {
       mob.vel.x = 0;
       mob.vel.z = 0;
       brain.path = [];
@@ -397,9 +865,58 @@ function updateEnemyAI(map: GameMap, delta: number): void {
 }
 
 /**
+ * Idle roaming: every few seconds a mob either rests or strolls to a nearby
+ * clear point at a fraction of its speed, facing where it walks — so its
+ * vision cone sweeps as it moves. Stationary mobs (spawners) never reach
+ * their target, but the rerolls still swing their gaze around like a
+ * scanning turret.
+ */
+function wander(map: GameMap, mob: Entity & { pos: { x: number; z: number }; vel: { x: number; z: number } }, delta: number): void {
+  const brain = mob.brain!;
+  brain.wanderIn -= delta;
+  if (brain.wanderIn <= 0) {
+    brain.wanderIn = 2 + ROT.RNG.getUniform() * 3;
+    if (ROT.RNG.getUniform() < 0.35) {
+      brain.wanderTarget = undefined; // rest a beat
+    } else {
+      const a = ROT.RNG.getUniform() * Math.PI * 2;
+      const d = 1.5 + ROT.RNG.getUniform() * 2.5;
+      const tx = mob.pos.x + Math.sin(a) * d;
+      const tz = mob.pos.z + Math.cos(a) * d;
+      if (!circleOverlapsWall(map, tx, tz, mob.radius ?? DEFAULT_RADIUS)) {
+        brain.wanderTarget = { x: tx, z: tz };
+      }
+    }
+  }
+  const t = brain.wanderTarget;
+  if (!t) {
+    mob.vel.x = 0;
+    mob.vel.z = 0;
+    return;
+  }
+  const dx = t.x - mob.pos.x;
+  const dz = t.z - mob.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.25) {
+    brain.wanderTarget = undefined;
+    mob.vel.x = 0;
+    mob.vel.z = 0;
+    return;
+  }
+  const speed = (mob.moveSpeed ?? MOB_SPEED) * 0.35;
+  mob.vel.x = (dx / d) * speed;
+  mob.vel.z = (dz / d) * speed;
+  if (mob.aim) {
+    mob.aim.x = dx / d;
+    mob.aim.z = dz / d;
+  }
+}
+
+/**
  * Projectile system: fly straight, despawn on obstacle/max-range, damage and
- * shove the first mob hit. ~14 u/s ⇒ ~0.23 u/frame — no substepping needed;
- * meaningfully faster projectiles would need it.
+ * shove the first mob hit. Sub-stepped so hit tests happen at most ~0.2
+ * units apart — spiky speed rolls are fast enough to cross a body in one
+ * frame otherwise.
  */
 function stepProjectiles(map: GameMap, delta: number): void {
   // Removing entities while iterating an archetype can skip elements —
@@ -407,50 +924,100 @@ function stepProjectiles(map: GameMap, delta: number): void {
   const dead: Entity[] = [];
 
   for (const p of projectiles) {
-    p.pos.x += p.vel.x * delta;
-    p.pos.z += p.vel.z * delta;
-    p.projectile.traveled += p.projectile.speed * delta;
-    const r = p.radius ?? 0.1;
-
-    if (p.projectile.traveled > p.projectile.maxRange || circleOverlapsWall(map, p.pos.x, p.pos.z, r)) {
-      dead.push(p);
-      continue;
-    }
-
-    const s = Math.hypot(p.vel.x, p.vel.z) || 1;
-
-    // Mob bullets test the player; player shots test mobs.
-    if (p.projectile.faction === 'mob') {
-      const player = players.first;
-      if (
-        player &&
-        Math.hypot(player.pos.x - p.pos.x, player.pos.z - p.pos.z) < r + (player.radius ?? DEFAULT_RADIUS)
-      ) {
-        damagePlayer(player, p.projectile.damage, p.vel.x / s, p.vel.z / s, p.projectile.knockback, p.projectile.stagger);
+    const steps = Math.max(1, Math.ceil((p.projectile.speed * delta) / 0.2));
+    for (let i = 0; i < steps; i++) {
+      if (stepProjectile(map, p, delta / steps)) {
         dead.push(p);
+        break;
       }
-      continue;
     }
-
-    // Collect overlapping mobs first (damageMob removes the dead, which
-    // isn't safe mid-iteration), then apply. Piercing shots fly on and skip
-    // mobs they've already struck.
-    const victims: Entity[] = [];
-    for (const mob of mobs) {
-      if (p.projectile.struck.includes(mob)) continue;
-      const dx = mob.pos.x - p.pos.x;
-      const dz = mob.pos.z - p.pos.z;
-      if (Math.hypot(dx, dz) < r + (mob.radius ?? DEFAULT_RADIUS)) victims.push(mob);
-    }
-    for (const mob of victims) {
-      applyHit(mob, p.vel.x / s, p.vel.z / s, p.projectile.knockback, p.projectile.stagger);
-      p.projectile.struck.push(mob);
-      damageMob(mob, p.projectile.damage);
-    }
-    if (victims.length > 0 && !p.projectile.pierce) dead.push(p);
   }
 
   for (const p of dead) world.remove(p);
+}
+
+/** One projectile sub-step; returns true when it should despawn. */
+function stepProjectile(
+  map: GameMap,
+  p: Entity & { projectile: NonNullable<Entity['projectile']>; pos: { x: number; z: number }; vel: { x: number; z: number } },
+  dt: number,
+): boolean {
+  const px = p.pos.x;
+  const pz = p.pos.z;
+  p.pos.x += p.vel.x * dt;
+  p.pos.z += p.vel.z * dt;
+  p.projectile.traveled += p.projectile.speed * dt;
+  const r = p.radius ?? 0.1;
+
+  if (p.projectile.traveled > p.projectile.maxRange) {
+    if (p.projectile.splits > 0) spawnFragments(p);
+    return true;
+  }
+  if (circleOverlapsWall(map, p.pos.x, p.pos.z, r)) {
+    if (p.projectile.bounces > 0) {
+      // Ricochet: back out to the pre-step position and reflect on whichever
+      // axis (or both, at a corner) the wall was hit along — grid walls are
+      // axis-aligned, so axis probes stand in for a surface normal.
+      p.projectile.bounces -= 1;
+      const hitX = circleOverlapsWall(map, p.pos.x, pz, r);
+      const hitZ = circleOverlapsWall(map, px, p.pos.z, r);
+      if (hitX || !hitZ) p.vel.x = -p.vel.x;
+      if (hitZ || !hitX) p.vel.z = -p.vel.z;
+      p.pos.x = px;
+      p.pos.z = pz;
+      return false;
+    }
+    if (p.projectile.splits > 0) {
+      p.pos.x = px;
+      p.pos.z = pz;
+      spawnFragments(p);
+    }
+    return true;
+  }
+
+  const s = Math.hypot(p.vel.x, p.vel.z) || 1;
+  const ctx: HitCtx = { faction: p.projectile.faction, mechanisms: p.projectile.mechanisms };
+  const pull = mech(p.projectile.mechanisms, 'pull');
+
+  // Mob bullets test the player; player shots test mobs.
+  if (p.projectile.faction === 'mob') {
+    const player = players.first;
+    if (
+      player &&
+      Math.hypot(player.pos.x - p.pos.x, player.pos.z - p.pos.z) < r + (player.radius ?? DEFAULT_RADIUS)
+    ) {
+      // A pulling shot yanks the target back along its own flight path.
+      const dir = pull ? -1 : 1;
+      const kb = pull ? p.projectile.knockback + pull.power : p.projectile.knockback;
+      damagePlayer(player, p.projectile.damage, (dir * p.vel.x) / s, (dir * p.vel.z) / s, kb, p.projectile.stagger, ctx);
+      if (p.projectile.splits > 0) spawnFragments(p);
+      return true;
+    }
+    return false;
+  }
+
+  // Collect overlapping mobs first (damageMob removes the dead, which
+  // isn't safe mid-iteration), then apply. Piercing shots fly on and skip
+  // mobs they've already struck.
+  const victims: Entity[] = [];
+  for (const mob of mobs) {
+    if (p.projectile.struck.includes(mob)) continue;
+    const dx = mob.pos.x - p.pos.x;
+    const dz = mob.pos.z - p.pos.z;
+    if (Math.hypot(dx, dz) < r + (mob.radius ?? DEFAULT_RADIUS)) victims.push(mob);
+  }
+  for (const mob of victims) {
+    const dir = pull ? -1 : 1;
+    const kb = pull ? p.projectile.knockback + pull.power : p.projectile.knockback;
+    applyHit(mob, (dir * p.vel.x) / s, (dir * p.vel.z) / s, kb, p.projectile.stagger);
+    p.projectile.struck.push(mob);
+    damageMob(mob, p.projectile.damage, ctx);
+  }
+  if (victims.length > 0 && !p.projectile.pierce) {
+    if (p.projectile.splits > 0) spawnFragments(p);
+    return true;
+  }
+  return false;
 }
 
 /** A* over walkable cells; returns the route from (fromX,fromZ) to the target,

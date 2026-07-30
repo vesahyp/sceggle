@@ -16,16 +16,13 @@ import type { Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { circleOverlapsWall, type GameMap } from '../worldmap';
 import { keyboard } from '../input';
-import { performAttack, meleeHitBand, SWING_HALF_ARC_RAD } from '../systems';
+import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
 
 const SPEED = 5;
 const BODY_Y = 0.65; // render height above the floor plane (sim is 2D)
 const CAM_OFFSET = new Vector3(0, 12, 8); // top-down, tilted for a 2.5D feel
-
-// The blade sweeps exactly the hit cone, so animation and hit area agree.
-const SWING_HALF = SWING_HALF_ARC_RAD;
 
 /** Projectiles spawn this far out along the aim (see systems.performAttack). */
 const MUZZLE = 0.6;
@@ -67,6 +64,8 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
   const aimPivot = useRef<Group>(null);
   const sectorMat = useRef<MeshBasicMaterial>(null);
   const line = useRef<Mesh>(null);
+  const lineMat = useRef<MeshBasicMaterial>(null);
+  const strike = useRef<Mesh>(null);
   const endRing = useRef<Mesh>(null);
   const attackHeld = useRef(false);
   const cooldown = useRef(0);
@@ -75,12 +74,12 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
   const raycaster = useThree((s) => s.raycaster);
 
   // The true melee hit area: an annular band around the blade's sweep
-  // radius (the same numbers stepMeleeSwings tests against). The hole in
+  // radius (the same numbers stepAttacks tests against). The hole in
   // the middle is a long weapon's dead zone.
   const sectorGeom = useMemo(() => {
     const { inner, outer } = meleeHitBand(weapon.reach);
     const g = new RingGeometry(inner, outer, 40, 1,
-      Math.PI / 2 - SWING_HALF_ARC_RAD, SWING_HALF_ARC_RAD * 2);
+      Math.PI / 2 - weapon.arc, weapon.arc * 2);
     g.rotateX(Math.PI / 2); // XY fan -> flat on the ground, centered on +Z
     return g;
   }, [weapon]);
@@ -94,7 +93,11 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
       if (e.code === 'Space') attackHeld.current = e.type === 'keydown';
     };
     const onMouse = (e: MouseEvent) => {
-      if (e.button === 0) attackHeld.current = e.type === 'mousedown';
+      if (e.button !== 0) return;
+      // Only the canvas arms an attack — clicking UI (the pack) must not
+      // fire the gun. Releasing anywhere disarms.
+      if (e.type === 'mousedown' && !(e.target instanceof HTMLCanvasElement)) return;
+      attackHeld.current = e.type === 'mousedown';
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
@@ -108,7 +111,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     };
   }, []);
 
-  useFrame((_, delta) => {
+  useFrame(({ clock }, delta) => {
     const pos = entity.pos;
     const vel = entity.vel;
     if (!pos || !vel) return;
@@ -147,17 +150,26 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     //     state, so the blade is exactly where the hits land) ---
     const aim = entity.aim ?? { x: 0, z: 1 };
     const yaw = Math.atan2(aim.x, aim.z);
-    const ms = entity.melee;
-    const swingK = ms ? ms.t / ms.duration : 1;
-    const swingAngle = ms ? (0.5 - swingK) * 2 * SWING_HALF : 0;
-    if (weaponPivot.current) weaponPivot.current.rotation.y = yaw + swingAngle;
+    const ms = entity.attack;
+    if (weaponPivot.current) weaponPivot.current.rotation.y = yaw + bladeAngle(ms, weapon.arc);
 
     // --- Range indicators (aim-oriented, never sweeping) ---
     if (aimPivot.current) aimPivot.current.rotation.y = yaw;
     if (weapon.kind === 'melee') {
-      // Visible at rest; flares on the swing and fades back over its duration.
-      if (sectorMat.current) sectorMat.current.opacity = 0.16 + (ms ? 0.4 * (1 - swingK) : 0);
+      // The strike bolt IS the hit: it appears at the sim's strike point and
+      // rides the sweep (it's a child of the swinging pivot at reach).
+      if (strike.current) strike.current.visible = !!ms && ms.t > ms.windup;
+      // The sector only states area + readiness now: nearly gone while the
+      // attack is unavailable (mid-attack or on cooldown), normal when ready.
+      const opacity = !ms && cooldown.current <= 0 ? 0.28 : 0.06;
+      if (sectorMat.current) sectorMat.current.opacity = opacity;
     } else {
+      // Same readiness language as the melee sector: the line brightens over
+      // the aim, goes dim while the mechanism re-arms, normal when ready.
+      const lineOpacity = ms
+        ? ms.t <= ms.windup ? 0.5 + 0.5 * (ms.t / ms.windup) : 0.15
+        : cooldown.current > 0 ? 0.15 : 0.5;
+      if (lineMat.current) lineMat.current.opacity = lineOpacity;
       // March along the aim like the projectile will, stopping at the first
       // wall — the line length IS how far this shot can actually fly.
       let range = weapon.reach;
@@ -175,12 +187,21 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     statusPivot.current?.quaternion.copy(camera.quaternion);
     if (status.current) status.current.visible = (entity.stun ?? 0) > 0;
 
-    // --- Mirror sim position; camera follows ---
+    // --- Mirror sim position; camera follows (plus kill/blast trembles) ---
     if (bodyMat.current) bodyMat.current.emissive.set((entity.hitFlash ?? 0) > 0 ? '#ffffff' : '#000000');
     group.current?.position.set(pos.x, BODY_Y, pos.z);
     camTarget.set(pos.x + CAM_OFFSET.x, BODY_Y + CAM_OFFSET.y, pos.z + CAM_OFFSET.z);
     camera.position.lerp(camTarget, 0.1);
     camera.lookAt(pos.x, BODY_Y, pos.z);
+    // The sim pumps viewFx.shake on kills and explosions; this is the one
+    // consumer, so it also decays it. Incommensurate frequencies make the
+    // jitter read as a rumble instead of a wobble.
+    viewFx.shake = Math.max(0, viewFx.shake - delta * 1.6);
+    if (viewFx.shake > 0.001) {
+      const t = clock.elapsedTime;
+      camera.position.x += Math.sin(t * 91) * viewFx.shake * 0.22;
+      camera.position.z += Math.cos(t * 83) * viewFx.shake * 0.22;
+    }
   });
 
   return (
@@ -189,9 +210,19 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         <capsuleGeometry args={[0.35, 0.6, 8, 16]} />
         <meshStandardMaterial ref={bodyMat} color="#4ea1ff" />
       </mesh>
-      {/* Pivot rotates the weapon to the aim direction and sweeps it on swing. */}
+      {/* Pivot rotates to the aim and sweeps on swing. Ranged holds the gun
+          mesh; melee holds no weapon — just the strike bolt out at reach,
+          shown while the strike can land (same visual language as a shot,
+          on an arc flight path instead of a line). */}
       <group ref={weaponPivot}>
-        <Weapon def={weapon} />
+        {weapon.kind === 'ranged' ? (
+          <Weapon def={weapon} />
+        ) : (
+          <mesh ref={strike} position={[0, 0, weapon.reach]} visible={false}>
+            <sphereGeometry args={[0.18, 8, 8]} />
+            <meshBasicMaterial color="#ffd166" />
+          </mesh>
+        )}
       </group>
       <HealthBar entity={entity} />
 
@@ -224,7 +255,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         ) : (
           <>
             <mesh ref={line} geometry={LINE_GEOM} position={[0, 0, MUZZLE]} renderOrder={990}>
-              <meshBasicMaterial color="#ffd166" transparent opacity={0.5} depthWrite={false} depthTest={false} />
+              <meshBasicMaterial ref={lineMat} color="#ffd166" transparent opacity={0.5} depthWrite={false} depthTest={false} />
             </mesh>
             <mesh ref={endRing} geometry={END_GEOM} renderOrder={991}>
               <meshBasicMaterial color="#ffd166" transparent opacity={0.65} side={DoubleSide} depthWrite={false} depthTest={false} />
