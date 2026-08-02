@@ -73,6 +73,30 @@ const MECHANISM_TYPES: Array<{ type: MechanismType; color: string; kinds: Weapon
   { type: 'split', color: '#ffe07f', kinds: ['ranged'] },
 ];
 
+/** What a mechanism actually does at its power, in HUD words — shown on the
+ *  weapon card and cog tooltips so installing visibly changes the weapon.
+ *  The numbers mirror the effect formulas in systems.ts; keep them in sync. */
+export function describeMechanism(m: MechanismDef): string {
+  switch (m.type) {
+    case 'chain': {
+      const jumps = 1 + Math.floor(m.power / 2);
+      return `hits arc to ${jumps} nearby ${jumps === 1 ? 'foe' : 'foes'}`;
+    }
+    case 'scald':
+      return `hits ignite: ${1 + Math.floor(m.power / 3)} dmg/½s for ${(1.5 + 0.4 * m.power).toFixed(1)}s`;
+    case 'pull':
+      return 'hits yank the target toward you';
+    case 'burst':
+      return `kills detonate: ${2 + m.power} dmg in a ${(1.3 + 0.18 * m.power).toFixed(1)} radius`;
+    case 'ricochet': {
+      const bounces = 1 + Math.floor(m.power / 2);
+      return `shots bounce off walls ${bounces}×`;
+    }
+    case 'split':
+      return `shots shatter into ${3 + Math.floor(m.power / 2)} fragments on impact`;
+  }
+}
+
 /** Roll a mechanism part around the given power tier (±1). */
 export function generateMechanism(tier: number): MechanismDef {
   const t = MECHANISM_TYPES[ROT.RNG.getUniformInt(0, MECHANISM_TYPES.length - 1)];

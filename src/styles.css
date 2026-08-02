@@ -133,6 +133,12 @@ body,
   margin: 4px 0;
 }
 
+.inv-effects {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: 11px;
+}
+
 .inv-fittings,
 .inv-parts {
   display: flex;

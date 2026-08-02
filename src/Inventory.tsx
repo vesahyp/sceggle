@@ -1,4 +1,4 @@
-import type { MechanismDef, WeaponDef } from './weapons';
+import { describeMechanism, type MechanismDef, type WeaponDef } from './weapons';
 
 /** Rough sustained damage — the one number that makes drops comparable. */
 const dps = (w: WeaponDef) => (w.damage * w.rate * w.count).toFixed(1);
@@ -27,6 +27,8 @@ export function Inventory({
   onInstall: (part: MechanismDef) => void;
   onDiscardPart: (id: string) => void;
 }) {
+  const held = weapons.find((w) => w.id === equippedId);
+  const equippedFull = !!held && held.mechanisms.length >= held.slots;
   return (
     <div className="inventory">
       <h2>Pack</h2>
@@ -62,7 +64,12 @@ export function Inventory({
             </div>
             <div className="inv-fittings">
               {w.mechanisms.map((m) => (
-                <span key={m.id} className="chip" style={{ borderColor: m.color, color: m.color }}>
+                <span
+                  key={m.id}
+                  className="chip"
+                  title={describeMechanism(m)}
+                  style={{ borderColor: m.color, color: m.color }}
+                >
                   {m.type} {m.power}
                 </span>
               ))}
@@ -72,17 +79,32 @@ export function Inventory({
                 </span>
               ))}
             </div>
+            {/* Installed cogs change what the gun DOES — say so on the card,
+                or an install reads as the cog simply vanishing. */}
+            {w.mechanisms.length > 0 && (
+              <ul className="inv-effects">
+                {w.mechanisms.map((m) => (
+                  <li key={m.id} style={{ color: m.color }}>
+                    {describeMechanism(m)}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         );
       })}
 
       <h2>Cogs</h2>
-      <p className="inv-hint">click to install into the equipped gun</p>
+      <p className="inv-hint">
+        click to install into the equipped gun
+        {equippedFull ? ' — its fittings are full, so the oldest cog swaps back here' : ''}
+      </p>
       <div className="inv-parts">
         {parts.map((p) => (
           <span
             key={p.id}
             className="chip chip-click"
+            title={describeMechanism(p)}
             style={{ borderColor: p.color, color: p.color }}
             onClick={() => onInstall(p)}
           >
