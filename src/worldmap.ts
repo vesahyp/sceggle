@@ -16,11 +16,21 @@ const cellMax = (c: number) => (c + 0.5) * TILE;
 
 export type Cell = 0 | 1; // 0 = floor, 1 = solid
 
+/** What a solid cell IS, for the renderer: terrain rock or built ruin wall.
+ *  Collision doesn't care — everything solid blocks the same. */
+export const KIND_FLOOR = 0;
+export const KIND_ROCK = 1;
+export const KIND_RUIN = 2;
+
 export interface GameMap {
   width: number;
   height: number;
   /** Row-major grid, indexed [z * width + x]. */
   cells: Uint8Array;
+  /** Per-cell kind (KIND_*), same indexing — rendering flavor only. */
+  kinds: Uint8Array;
+  /** Area palette, rolled with the map so the biome varies per seed. */
+  palette: { ground: string; rock: string; ruin: string };
   /** Walkable floor cells, in row-major order. */
   floors: Array<{ x: number; z: number }>;
   /** Where the player enters the area: floor cell nearest the west edge. */
@@ -28,6 +38,19 @@ export interface GameMap {
   /** Stepping here leaves the area: floor cell nearest the east edge. */
   exit: { x: number; z: number };
   isWall: (x: number, z: number) => boolean;
+}
+
+/** Muted hsl → hex, for the rolled area palettes. */
+function hsl(h: number, s: number, l: number): string {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
 }
 
 /**
@@ -49,8 +72,16 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
   if (seed !== undefined) ROT.RNG.setSeed(seed);
 
   const cells = new Uint8Array(width * height);
+  const kinds = new Uint8Array(width * height);
+  const solid = (x: number, z: number, kind: number) => {
+    cells[z * width + x] = 1;
+    kinds[z * width + x] = kind;
+  };
   const carve = (x: number, z: number) => {
-    if (x >= 1 && z >= 1 && x <= width - 2 && z <= height - 2) cells[z * width + x] = 0;
+    if (x >= 1 && z >= 1 && x <= width - 2 && z <= height - 2) {
+      cells[z * width + x] = 0;
+      kinds[z * width + x] = KIND_FLOOR;
+    }
   };
   const carveDisc = (cx: number, cz: number, r: number) => {
     for (let z = Math.ceil(cz - r); z <= Math.floor(cz + r); z++) {
@@ -69,8 +100,18 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
   ca.randomize(rockiness);
   for (let g = 0; g < 3; g++) ca.create();
   ca.create((x, z, alive) => {
-    if (alive) cells[z * width + x] = 1;
+    if (alive) solid(x, z, KIND_ROCK);
   });
+
+  // Area palette: one hue anchors the biome; ground dark, rock lighter in
+  // the same family, ruin masonry fixed so built structure reads the same
+  // everywhere.
+  const hue = ROT.RNG.getUniform() * 360;
+  const palette = {
+    ground: hsl(hue, 0.14, 0.16),
+    rock: hsl(hue, 0.17, 0.33),
+    ruin: '#6d6353',
+  };
 
   // 2) Ruins: wall the shell, clear the floor, knock a doorway in two
   //    opposite walls. Roads carved later may breach them further.
@@ -83,7 +124,8 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
     for (let z = rz; z < rz + rh; z++) {
       for (let x = rx; x < rx + rw; x++) {
         const edge = x === rx || z === rz || x === rx + rw - 1 || z === rz + rh - 1;
-        cells[z * width + x] = edge ? 1 : 0;
+        if (edge) solid(x, z, KIND_RUIN);
+        else carve(x, z);
       }
     }
     const doorX = rx + 1 + ROT.RNG.getUniformInt(0, rw - 3);
@@ -135,17 +177,19 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
 
   // Border ring: the world ends here.
   for (let x = 0; x < width; x++) {
-    cells[x] = 1;
-    cells[(height - 1) * width + x] = 1;
+    solid(x, 0, KIND_ROCK);
+    solid(x, height - 1, KIND_ROCK);
   }
   for (let z = 0; z < height; z++) {
-    cells[z * width] = 1;
-    cells[z * width + width - 1] = 1;
+    solid(0, z, KIND_ROCK);
+    solid(width - 1, z, KIND_ROCK);
   }
 
   // Connectivity: keep only the largest floor region so A* and spawns can
   // never be stranded in a walled-off pocket; other pockets become solid.
   const floors = keepLargestRegion(cells, width, height);
+  // Pockets the region pass solidified read as rock.
+  for (let i = 0; i < cells.length; i++) if (cells[i] === 1 && kinds[i] === KIND_FLOOR) kinds[i] = KIND_ROCK;
 
   // Entry and exit land on the surviving region nearest the road's own
   // endpoints, so a walkable route between them always exists.
@@ -157,7 +201,7 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
     return cells[z * width + x] === 1;
   };
 
-  return { width, height, cells, floors, entry, exit, isWall };
+  return { width, height, cells, kinds, palette, floors, entry, exit, isWall };
 }
 
 /** Floor cell closest to a target grid point. */

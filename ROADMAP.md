@@ -107,11 +107,6 @@ they land (git history is the changelog).
 - The field is murky; rarity colors and the sense-visualization layers
   (cones, rings, ripples) need to read at a glance without adding clutter.
 
-### 8. World variety
-- Biome palette/flavor on top of the structured generator (rock masses,
-  arenas, roads, ruins already vary per seed) — tint sets and obstacle
-  shapes bought from the same area budget as the roster.
-
 ## Someday / ideas
 
 - Steampunk theming pass: real meshes, names, palette (see Design direction).
