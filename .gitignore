@@ -4,3 +4,9 @@ dist-ssr
 *.local
 .DS_Store
 .playwright-mcp
+
+# terraform (infra/) — state stays local, like the sibling sites
+infra/.terraform/
+infra/tfplan
+infra/*.tfstate
+infra/*.tfstate.backup

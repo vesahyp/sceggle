@@ -16,6 +16,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>sceggle — hack-slash-loot</title>
+    <!-- Analytics: beacons ride the query string of a 1x1 GIF served by
+         our CloudFront pixel host; its access logs are the datastore
+         (see infra/ and TRACKING.md). The endpoint is cross-origin
+         because the game itself ships from GitHub Pages for now. Empty
+         endpoint = tracker stays dormant; fill in the `pixel_url`
+         terraform output after `make apply`. -->
+    <script>
+      window.TRACKER_CONFIG = { endpoint: "" };
+    </script>
+    <script defer src="/tracker.js"></script>
   </head>
   <body>
     <div id="root"></div>

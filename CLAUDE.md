@@ -33,6 +33,8 @@ src/
   scene/        R3F render components (Terrain, Player, Mob, Weapon, HealthBar,
                 Projectiles, Loot, DamageNumbers, Vision, Simulation)
   App.tsx       Areas, mob spawning (point pools), HUD; wires scene + input
+public/         tracker.js + t.gif — self-hosted analytics (see TRACKING.md)
+infra/          Terraform: CloudFront pixel host / future site host
 legacy/         Original 2016 code — reference only, don't extend
 ```
 
