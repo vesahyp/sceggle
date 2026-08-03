@@ -108,8 +108,9 @@ they land (git history is the changelog).
   (cones, rings, ripples) need to read at a glance without adding clutter.
 
 ### 8. World variety
-- Biome variation of the scatter generator (density, cluster size, palette),
-  bought from the same area budget as the roster.
+- Biome palette/flavor on top of the structured generator (rock masses,
+  arenas, roads, ruins already vary per seed) — tint sets and obstacle
+  shapes bought from the same area budget as the roster.
 
 ## Someday / ideas
 

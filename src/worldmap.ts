@@ -31,16 +31,109 @@ export interface GameMap {
 }
 
 /**
- * Generate an open overworld: a mostly-walkable field with scattered obstacle
- * clusters (rocks/ruins/copses as far as the renderer cares), ringed by a
- * solid border. Seeded for reproducibility. rot.js has no open-field
- * generator, so this is a small scatter of RNG-driven random walks; the
- * output keeps the same grid shape the pathfinding and renderer consume.
+ * Generate an overworld with actual terrain structure, west → east:
+ *
+ * 1. Cellular-automata rock masses (per-area rockiness roll, so one area
+ *    reads as open plains and the next as a boulder maze).
+ * 2. Ruins: broken rectangular shells with doorways — hard cover to fight
+ *    around. Stamped before the roads so a road can breach a wall.
+ * 3. Arenas: circular clearings strung across the map — the fight pockets.
+ * 4. Roads: jittered polylines carved entry → arenas → exit (plus a loop
+ *    between arenas when there are enough). The carve guarantees a walkable
+ *    route; where a road squeezes past a rock mass, a chokepoint falls out.
+ *
+ * Everything draws from ROT.RNG (determinism rule); the output keeps the
+ * grid shape the sim, pathfinding, and renderer consume.
  */
 export function generateWorldMap(width: number, height: number, seed?: number): GameMap {
   if (seed !== undefined) ROT.RNG.setSeed(seed);
 
-  const cells = new Uint8Array(width * height); // start all floor
+  const cells = new Uint8Array(width * height);
+  const carve = (x: number, z: number) => {
+    if (x >= 1 && z >= 1 && x <= width - 2 && z <= height - 2) cells[z * width + x] = 0;
+  };
+  const carveDisc = (cx: number, cz: number, r: number) => {
+    for (let z = Math.ceil(cz - r); z <= Math.floor(cz + r); z++) {
+      for (let x = Math.ceil(cx - r); x <= Math.floor(cx + r); x++) {
+        if ((x - cx) ** 2 + (z - cz) ** 2 <= r * r) carve(x, z);
+      }
+    }
+  };
+
+  // 1) Rock masses: a few CA generations smooth seeded noise into blobs.
+  // CA equilibrium is touchy: below ~0.44 the rock dissolves to near-empty,
+  // around 0.5 it holds ~half the field. This range lands 35–55% rock before
+  // the roads/arenas carve it back open.
+  const rockiness = 0.44 + ROT.RNG.getUniform() * 0.08;
+  const ca = new ROT.Map.Cellular(width, height);
+  ca.randomize(rockiness);
+  for (let g = 0; g < 3; g++) ca.create();
+  ca.create((x, z, alive) => {
+    if (alive) cells[z * width + x] = 1;
+  });
+
+  // 2) Ruins: wall the shell, clear the floor, knock a doorway in two
+  //    opposite walls. Roads carved later may breach them further.
+  const ruinCount = 2 + ROT.RNG.getUniformInt(0, 2);
+  for (let i = 0; i < ruinCount; i++) {
+    const rw = 5 + ROT.RNG.getUniformInt(0, 4);
+    const rh = 5 + ROT.RNG.getUniformInt(0, 4);
+    const rx = ROT.RNG.getUniformInt(3, width - 4 - rw);
+    const rz = ROT.RNG.getUniformInt(3, height - 4 - rh);
+    for (let z = rz; z < rz + rh; z++) {
+      for (let x = rx; x < rx + rw; x++) {
+        const edge = x === rx || z === rz || x === rx + rw - 1 || z === rz + rh - 1;
+        cells[z * width + x] = edge ? 1 : 0;
+      }
+    }
+    const doorX = rx + 1 + ROT.RNG.getUniformInt(0, rw - 3);
+    const doorZ = rz + 1 + ROT.RNG.getUniformInt(0, rh - 3);
+    carve(doorX, rz);
+    carve(doorX, rz + rh - 1);
+    if (ROT.RNG.getUniform() < 0.5) {
+      carve(rx, doorZ);
+      carve(rx + rw - 1, doorZ);
+    }
+  }
+
+  // 3) Arenas: clearings spaced across the west→east axis, jittered so the
+  //    road through them winds instead of ruling a straight line.
+  const margin = 7;
+  const arenaCount = 3 + ROT.RNG.getUniformInt(0, 2);
+  const arenas: Array<{ x: number; z: number }> = [];
+  for (let i = 0; i < arenaCount; i++) {
+    const ax = Math.round(margin + ((i + 0.5) / arenaCount) * (width - 2 * margin)) + ROT.RNG.getUniformInt(-3, 3);
+    const az = ROT.RNG.getUniformInt(margin, height - 1 - margin);
+    carveDisc(ax, az, 3 + ROT.RNG.getUniform() * 2.5);
+    arenas.push({ x: ax, z: az });
+  }
+
+  // 4) Roads: carve entry → arenas → exit with a jittered midpoint per leg.
+  const entryPt = { x: 1, z: ROT.RNG.getUniformInt(margin, height - 1 - margin) };
+  const exitPt = { x: width - 2, z: ROT.RNG.getUniformInt(margin, height - 1 - margin) };
+  const carveRoad = (a: { x: number; z: number }, b: { x: number; z: number }) => {
+    const mid = {
+      x: (a.x + b.x) / 2 + ROT.RNG.getUniformInt(-4, 4),
+      z: (a.z + b.z) / 2 + ROT.RNG.getUniformInt(-4, 4),
+    };
+    for (const [p, q] of [
+      [a, mid],
+      [mid, b],
+    ]) {
+      const steps = Math.ceil(Math.hypot(q.x - p.x, q.z - p.z) * 2);
+      const r = 1.1 + ROT.RNG.getUniform() * 0.5;
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        carveDisc(p.x + (q.x - p.x) * t, p.z + (q.z - p.z) * t, r);
+      }
+    }
+  };
+  const waypoints = [entryPt, ...arenas, exitPt];
+  for (let i = 0; i < waypoints.length - 1; i++) carveRoad(waypoints[i], waypoints[i + 1]);
+  // A loop between non-adjacent arenas: kiting wants circuits, not dead ends.
+  if (arenaCount >= 3) carveRoad(arenas[0], arenas[arenaCount - 1]);
+
+  // Border ring: the world ends here.
   for (let x = 0; x < width; x++) {
     cells[x] = 1;
     cells[(height - 1) * width + x] = 1;
@@ -50,29 +143,14 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
     cells[z * width + width - 1] = 1;
   }
 
-  // Obstacle clusters: short random walks marking cells solid → blobby
-  // clumps at ~10–15% density, the "open with scattered cover" read.
-  const clusterCount = Math.floor((width * height) / 60);
-  for (let i = 0; i < clusterCount; i++) {
-    let x = ROT.RNG.getUniformInt(2, width - 3);
-    let z = ROT.RNG.getUniformInt(2, height - 3);
-    const steps = ROT.RNG.getUniformInt(2, 9);
-    for (let s = 0; s < steps; s++) {
-      cells[z * width + x] = 1;
-      const dir = ROT.RNG.getUniformInt(0, 3);
-      x = Math.min(width - 2, Math.max(1, x + (dir === 0 ? 1 : dir === 1 ? -1 : 0)));
-      z = Math.min(height - 2, Math.max(1, z + (dir === 2 ? 1 : dir === 3 ? -1 : 0)));
-    }
-  }
-
   // Connectivity: keep only the largest floor region so A* and spawns can
   // never be stranded in a walled-off pocket; other pockets become solid.
   const floors = keepLargestRegion(cells, width, height);
 
-  // The area reads west → east: enter at the west edge, leave at the east.
-  // Both picked from the surviving region, so a walkable route always exists.
-  const entry = nearestFloor(floors, 1, height / 2);
-  const exit = nearestFloor(floors, width - 2, height / 2);
+  // Entry and exit land on the surviving region nearest the road's own
+  // endpoints, so a walkable route between them always exists.
+  const entry = nearestFloor(floors, entryPt.x, entryPt.z);
+  const exit = nearestFloor(floors, exitPt.x, exitPt.z);
 
   const isWall = (x: number, z: number) => {
     if (x < 0 || z < 0 || x >= width || z >= height) return true;
@@ -151,10 +229,20 @@ function keepLargestRegion(cells: Uint8Array, width: number, height: number): Ar
 }
 
 /**
- * Move a collision circle by vel·dt with axis-separated clamping against
- * solid cells — sliding along obstacle faces falls out for free. Mutates
- * `pos`. No tunnel risk at our speeds (~0.1 u/frame vs TILE = 1); faster
- * movers would need substepping.
+ * Move a collision circle by vel·dt: integrate the full step, then push the
+ * circle out of any overlapping solid cell along the shortest separation
+ * vector, iterating until clear. Mutates `pos`.
+ *
+ * Face contacts push perpendicular to the wall, so sliding along faces falls
+ * out for free; corner contacts push radially from the corner point, so
+ * bodies round corners smoothly. (The previous axis-separated clamp treated
+ * a corner as blocking both axes at once — bodies deadlocked on corner
+ * points and corridor mouths.) Deepest overlap resolves first each round,
+ * so a face beats the phantom corner of the neighbouring wall cell.
+ *
+ * No tunnel risk at our speeds (~0.1 u/frame vs r ≥ 0.2): the centre can
+ * never cross into a solid cell in one step, so the closest-point normal is
+ * always well-defined. Faster movers would need substepping.
  */
 export function moveCircle(
   map: GameMap,
@@ -163,38 +251,38 @@ export function moveCircle(
   r: number,
   dt: number,
 ): void {
-  // X axis
-  let nx = pos.x + vel.x * dt;
-  if (vel.x !== 0) {
-    for (let cz = worldToCell(pos.z - r); cz <= worldToCell(pos.z + r); cz++) {
-      // Skip cells the circle doesn't actually overlap in Z.
-      const closestZ = Math.min(Math.max(pos.z, cellMin(cz)), cellMax(cz));
-      if (Math.abs(pos.z - closestZ) >= r) continue;
-      for (let cx = worldToCell(nx - r); cx <= worldToCell(nx + r); cx++) {
-        if (!map.isWall(cx, cz)) continue;
-        if (nx + r > cellMin(cx) && nx - r < cellMax(cx)) {
-          nx = vel.x > 0 ? Math.min(nx, cellMin(cx) - r) : Math.max(nx, cellMax(cx) + r);
-        }
-      }
-    }
-  }
-  pos.x = nx;
+  pos.x += vel.x * dt;
+  pos.z += vel.z * dt;
 
-  // Z axis (against the updated X)
-  let nz = pos.z + vel.z * dt;
-  if (vel.z !== 0) {
-    for (let cx = worldToCell(pos.x - r); cx <= worldToCell(pos.x + r); cx++) {
-      const closestX = Math.min(Math.max(pos.x, cellMin(cx)), cellMax(cx));
-      if (Math.abs(pos.x - closestX) >= r) continue;
-      for (let cz = worldToCell(nz - r); cz <= worldToCell(nz + r); cz++) {
+  for (let iter = 0; iter < 5; iter++) {
+    let depth = 0;
+    let pushX = 0;
+    let pushZ = 0;
+    for (let cz = worldToCell(pos.z - r); cz <= worldToCell(pos.z + r); cz++) {
+      for (let cx = worldToCell(pos.x - r); cx <= worldToCell(pos.x + r); cx++) {
         if (!map.isWall(cx, cz)) continue;
-        if (nz + r > cellMin(cz) && nz - r < cellMax(cz)) {
-          nz = vel.z > 0 ? Math.min(nz, cellMin(cz) - r) : Math.max(nz, cellMax(cz) + r);
+        const dx = pos.x - Math.min(Math.max(pos.x, cellMin(cx)), cellMax(cx));
+        const dz = pos.z - Math.min(Math.max(pos.z, cellMin(cz)), cellMax(cz));
+        const d = Math.hypot(dx, dz);
+        if (d >= r || r - d <= depth) continue;
+        depth = r - d;
+        if (d > 0) {
+          pushX = dx / d;
+          pushZ = dz / d;
+        } else {
+          // Centre exactly on the cell boundary — unreachable at game
+          // speeds, but keep the normal defined: back straight out.
+          const vl = Math.hypot(vel.x, vel.z) || 1;
+          pushX = -vel.x / vl;
+          pushZ = -vel.z / vl;
         }
       }
     }
+    if (depth === 0) break;
+    // A hair past tangency, so the same contact doesn't re-trigger.
+    pos.x += pushX * (depth + 1e-4);
+    pos.z += pushZ * (depth + 1e-4);
   }
-  pos.z = nz;
 }
 
 /** True if a circle at (x, z) overlaps any solid cell (projectile impacts). */
