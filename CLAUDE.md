@@ -57,7 +57,7 @@ legacy/         Original 2016 code — reference only, don't extend
    point budgets — never add hardcoded rosters. Remaining constants are
    placeholders to be swept into generation (see ROADMAP).
 7. **One combat system.** Player and mobs share the same attack code paths
-   (`advanceSwing`, the projectile pipeline). Never fork a mob-only or
+   (`advanceAttack`, the projectile pipeline). Never fork a mob-only or
    player-only variant of a mechanic; differ by stats and target side only.
 
 ## Workflow

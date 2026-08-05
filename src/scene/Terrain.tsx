@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Instances, Instance } from '@react-three/drei';
 import { Color } from 'three';
-import { TILE, KIND_RUIN, type GameMap } from '../worldmap';
+import { TILE, KIND_RUIN, KIND_GRASS, KIND_CRATE, KIND_BARREL, type GameMap } from '../worldmap';
 
 const RUIN_H = 1.9;
 
@@ -20,23 +20,28 @@ const cellHash = (x: number, z: number) => {
  * reading the same grid — the renderer only reflects it.
  */
 export function Terrain({ map }: { map: GameMap }) {
-  const { rocks, ruins } = useMemo(() => {
+  const { rocks, ruins, grass } = useMemo(() => {
     const rocks: Array<{ x: number; z: number; h: number; color: Color }> = [];
     const ruins: Array<[number, number]> = [];
+    const grass: Array<[number, number]> = [];
     const base = new Color(map.palette.rock);
     for (let z = 0; z < map.height; z++) {
       for (let x = 0; x < map.width; x++) {
         const i = z * map.width + x;
-        if (map.cells[i] !== 1) continue;
+        if (map.cells[i] !== 1) {
+          if (map.kinds[i] === KIND_GRASS) grass.push([x, z]);
+          continue;
+        }
         if (map.kinds[i] === KIND_RUIN) {
           ruins.push([x, z]);
-        } else {
+        } else if (map.kinds[i] !== KIND_CRATE && map.kinds[i] !== KIND_BARREL) {
+          // Destructibles render as their own entities, never as boulders.
           const h = cellHash(x, z);
           rocks.push({ x, z, h: 0.7 + h * 0.9, color: base.clone().multiplyScalar(0.8 + h * 0.4) });
         }
       }
     }
-    return { rocks, ruins };
+    return { rocks, ruins, grass };
   }, [map]);
 
   return (
@@ -66,6 +71,29 @@ export function Terrain({ map }: { map: GameMap }) {
           {ruins.map(([x, z], i) => (
             <Instance key={i} position={[x * TILE, RUIN_H / 2, z * TILE]} />
           ))}
+        </Instances>
+      )}
+
+      {/* Grass tufts: walkable concealment — stand inside and mob eyes fail.
+          Squat rounded blocks, jittered per cell (cellHash, no RNG draws) so
+          patches read as growth, not tiles. No shadows: a bush shouldn't
+          darken whoever hides in it. */}
+      {grass.length > 0 && (
+        <Instances key={`grass-${grass.length}`} limit={grass.length} receiveShadow>
+          <boxGeometry args={[TILE * 0.95, 0.5, TILE * 0.95]} />
+          <meshStandardMaterial color={map.palette.grass} />
+          {grass.map(([x, z], i) => {
+            const h1 = cellHash(x, z);
+            const h2 = cellHash(x + 31, z + 17);
+            return (
+              <Instance
+                key={i}
+                position={[x * TILE + (h2 - 0.5) * 0.25, 0.25 * (0.8 + h1 * 0.5), z * TILE + (h1 - 0.5) * 0.25]}
+                scale={[0.85 + h2 * 0.3, 0.8 + h1 * 0.5, 0.85 + h1 * 0.3]}
+                rotation={[0, h2 * 0.6, 0]}
+              />
+            );
+          })}
         </Instances>
       )}
 

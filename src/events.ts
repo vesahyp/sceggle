@@ -10,6 +10,9 @@ import type { MechanismDef, WeaponDef } from './weapons';
  */
 export type GameEvent =
   | { type: 'mobDied'; mob: Entity }
+  /** A crate/barrel broke — App unmounts its view (the sim already carved
+   *  the cell back to floor). */
+  | { type: 'destructibleDied'; entity: Entity }
   | { type: 'pickup'; weapon: WeaponDef }
   /** Walked over a mechanism part — App installs it into the held weapon. */
   | { type: 'pickupPart'; part: MechanismDef }

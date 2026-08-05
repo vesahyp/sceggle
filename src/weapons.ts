@@ -130,6 +130,8 @@ export interface WeaponDef {
   pierce: boolean;
   /** Projectiles per shot (ranged); 1 for melee. */
   count: number;
+  /** Detonation radius where a shot ends its flight; 0 = direct-hit only. */
+  blastRadius: number;
   /** Fitting slots — how many mechanisms this weapon can host. */
   slots: number;
   /** Installed mechanisms (construction happens after the roll). */
@@ -181,6 +183,9 @@ const RAMPS: Record<WeaponKind, Record<string, Ramp>> = {
 const PIERCE_COST = 4;
 const MULTISHOT_COST = 3;
 const MAX_EXTRA_SHOTS = 2;
+/** Blast is a flat purchase like pierce: each rank widens the detonation. */
+const AOE_COST = 4;
+const MAX_AOE = 2;
 /** Share of the pool the specialty stats soak up. */
 const SPECIALTY_SHARE = 0.65;
 /** Chance a roll sells one non-specialty stat below base to fund the rest. */
@@ -198,6 +203,7 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
   const pts: Record<string, number> = {};
   let pierce = false;
   let extraShots = 0;
+  let aoe = 0;
   let pool = budget;
 
   // Specialties first: 1–2 stats take the lion's share of the budget.
@@ -220,7 +226,7 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
 
   // Remainder sprinkles uniformly; ranged rolls can hit the flat purchases.
   const keys = [...rampKeys];
-  if (kind === 'ranged') keys.push('pierce', 'multishot');
+  if (kind === 'ranged') keys.push('pierce', 'multishot', 'aoe');
   // Guard bounds the loop even if RNG keeps landing on unaffordable flat
   // purchases; in practice it exits when the pool runs dry.
   for (let guard = 0; pool > 0 && guard < 500; guard++) {
@@ -236,6 +242,13 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
       if (extraShots < MAX_EXTRA_SHOTS && pool >= MULTISHOT_COST) {
         extraShots += 1;
         pool -= MULTISHOT_COST;
+      }
+      continue;
+    }
+    if (k === 'aoe') {
+      if (aoe < MAX_AOE && pool >= AOE_COST) {
+        aoe += 1;
+        pool -= AOE_COST;
       }
       continue;
     }
@@ -267,6 +280,7 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
     hitRadius: kind === 'ranged' ? +v('hitRadius').toFixed(2) : 0,
     pierce,
     count: 1 + extraShots,
+    blastRadius: aoe > 0 ? +(0.9 + 0.45 * (aoe - 1)).toFixed(2) : 0,
     // Fittings grow with tier (rarity will drive this later); rolls come out
     // empty — installing mechanisms is the player's job (or the spawner's,
     // for elite mobs).

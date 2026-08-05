@@ -13,12 +13,20 @@ import {
 import { Inventory } from './Inventory';
 import { TouchSticks } from './TouchSticks';
 import { initTouch } from './touch';
-import { generateWorldMap, cellToWorld, type GameMap } from './worldmap';
+import {
+  generateWorldMap,
+  cellToWorld,
+  KIND_GRASS,
+  KIND_CRATE,
+  KIND_BARREL,
+  type GameMap,
+} from './worldmap';
 import { onGameEvent } from './events';
 import { useKeyboard } from './input';
 import { Terrain } from './scene/Terrain';
 import { Player } from './scene/Player';
 import { Mob } from './scene/Mob';
+import { Destructible } from './scene/Destructible';
 import { Loot } from './scene/Loot';
 import { Projectiles } from './scene/Projectiles';
 import { DamageNumbers } from './scene/DamageNumbers';
@@ -39,6 +47,100 @@ function useConstant<T>(factory: () => T): T {
 }
 
 /**
+ * Roll the destructibles for an area: clusters of breakable crates (cover
+ * that stops being cover) and explosive barrels (shoot to detonate; chains).
+ * Each occupies one grid cell stamped SOLID here — collision, LOS, and A*
+ * treat it as a wall until the entity dies and the sim carves it back.
+ *
+ * Self-seeded on its own stream so mob rosters don't shift with destructible
+ * counts, and idempotent under StrictMode: a re-run makes identical draws,
+ * so the "already stamped by us" cells are exactly the ones it re-stamps.
+ */
+function spawnDestructibles(map: GameMap, area: number): Entity[] {
+  ROT.RNG.setSeed(SEED * 47 + area);
+  let pool = 18 + 8 * area;
+  const list: Entity[] = [];
+  let nextId = 0;
+  const placedNow = new Set<string>();
+  // Keep clear of the doorstep and the goal, and off grass (a crate on a
+  // tuft would orphan the concealment rules under it).
+  const candidates = map.floors.filter(
+    (c) =>
+      Math.hypot(c.x - map.entry.x, c.z - map.entry.z) > 2.5 &&
+      Math.hypot(c.x - map.exit.x, c.z - map.exit.z) > 2.5 &&
+      map.kinds[c.z * map.width + c.x] !== KIND_GRASS,
+  );
+  if (candidates.length === 0) return list;
+
+  const NEIGHBORS = [
+    [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1],
+  ];
+  /** Stamp up to n cells of a cluster around a random center. */
+  const cluster = (kind: number, n: number) => {
+    const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+    const spots = ROT.RNG.shuffle(NEIGHBORS.map(([dx, dz]) => ({ x: center.x + dx, z: center.z + dz })));
+    let placed = 0;
+    for (const s of spots) {
+      if (placed >= n) break;
+      if (s.x < 1 || s.z < 1 || s.x > map.width - 2 || s.z > map.height - 2) continue;
+      const key = `${s.x},${s.z}`;
+      if (placedNow.has(key)) continue;
+      const i = s.z * map.width + s.x;
+      // Free floor — or a cell WE stamped on a previous run of the same
+      // seed (StrictMode): re-stamping it keeps the double-run identical.
+      const restampable = map.kinds[i] === KIND_CRATE || map.kinds[i] === KIND_BARREL;
+      if ((map.cells[i] !== 0 && !restampable) || map.kinds[i] === KIND_GRASS) continue;
+      map.cells[i] = 1;
+      map.kinds[i] = kind;
+      placedNow.add(key);
+      list.push(
+        kind === KIND_BARREL
+          ? {
+              destructible: {
+                cell: { x: s.x, z: s.z },
+                explosive: { radius: 1.8, damage: 4 + area },
+              },
+              pos: { x: cellToWorld(s.x), z: cellToWorld(s.z) },
+              health: { current: 2, max: 2 },
+              hitFlash: 0,
+              tint: '#c0392b',
+              id: nextId++,
+            }
+          : {
+              destructible: { cell: { x: s.x, z: s.z } },
+              pos: { x: cellToWorld(s.x), z: cellToWorld(s.z) },
+              health: { current: 5 + 2 * area, max: 5 + 2 * area },
+              hitFlash: 0,
+              tint: '#a8845c',
+              id: nextId++,
+            },
+      );
+      placed++;
+    }
+  };
+
+  const kinds = [
+    { weight: 0.7, cost: 4, build: () => cluster(KIND_CRATE, 2 + ROT.RNG.getUniformInt(0, 2)) },
+    { weight: 0.3, cost: 5, build: () => cluster(KIND_BARREL, 2 + ROT.RNG.getUniformInt(0, 1)) },
+  ];
+  while (pool >= Math.min(...kinds.map((k) => k.cost))) {
+    let roll = ROT.RNG.getUniform() * kinds.reduce((s, k) => s + k.weight, 0);
+    let pick = kinds[0];
+    for (const k of kinds) {
+      roll -= k.weight;
+      if (roll <= 0) {
+        pick = k;
+        break;
+      }
+    }
+    if (pick.cost > pool) continue; // reroll — an affordable option exists
+    pool -= pick.cost;
+    pick.build();
+  }
+  return list;
+}
+
+/**
  * Roll the mob population for an area. Self-seeded so it's deterministic and
  * idempotent (StrictMode double-runs effects; a shared RNG stream would give
  * a different roster on the second pass).
@@ -52,12 +154,21 @@ function useConstant<T>(factory: () => T): T {
  * (its weapon, a mechanism part) is pre-rolled here too, so kills draw no
  * RNG mid-combat.
  */
-function spawnMobs(map: GameMap, area: number): Entity[] {
+function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entity[] {
   ROT.RNG.setSeed(SEED * 31 + area);
-  let pool = 110 + 45 * (area - 1);
-  // Keep spawns off the player's doorstep so areas start quiet.
+  const pool = 110 + 45 * (area - 1);
+  // Keep spawns off the player's doorstep so areas start quiet. `map.floors`
+  // is a generation-time snapshot, so cells the destructibles stamped solid
+  // must be filtered out explicitly or a mob could spawn inside a crate.
   const candidates = map.floors.filter(
-    (c) => Math.hypot(c.x - map.entry.x, c.z - map.entry.z) > 12,
+    (c) =>
+      Math.hypot(c.x - map.entry.x, c.z - map.entry.z) > 12 &&
+      !blockedCells.has(`${c.x},${c.z}`),
+  );
+  // The exit is a defended objective: cells around it host the guard share
+  // of the pool, the rest of the map gets the remainder as free roamers.
+  const exitCells = candidates.filter(
+    (c) => Math.hypot(c.x - map.exit.x, c.z - map.exit.z) < 9,
   );
   const list: Entity[] = [];
   let nextId = 0;
@@ -94,6 +205,8 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     sight?: number;
     fov?: number;
     hearing?: number;
+    /** Guard leash: >0 stations the mob on its spawn cell (see brain.post). */
+    postRadius?: number;
   }
   // What a mob WIELDS is a detuned copy of its roll (they outnumber you
   // ~30:1 — full listed damage was near-one-shot territory); what it DROPS
@@ -148,13 +261,16 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
       stagger: 0,
       wanderTarget: undefined,
       wanderIn: ROT.RNG.getUniform() * 3,
+      post: s.postRadius
+        ? { x: cellToWorld(cell.x), z: cellToWorld(cell.z), radius: s.postRadius }
+        : undefined,
     },
   });
 
   /** One-hit swarm chaff — shared by swarm packs and spawner reinforcements.
    *  Clearly slower than the player (5): a crowd you mow, not a tide that
    *  forces permanent backpedaling. Rushers are the fast exception. */
-  const chaff = (cell: { x: number; z: number }): Entity => {
+  const chaff = (cell: { x: number; z: number }, postRadius = 0): Entity => {
     const weapon = generateWeapon('melee', 1, 3 + ROT.RNG.getUniformInt(0, 2));
     return makeMob(cell, {
       level: 1,
@@ -163,27 +279,36 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
       tint: '#5fd35f',
       weapon,
       drops: rollDrops(weapon, 0.2, 0.18),
+      postRadius,
     });
   };
 
-  // Pack archetypes: [weight, cost, builder]. The pool buys packs until it
-  // runs dry; weights skew toward swarms so the field reads as a horde with
-  // punctuation, not a lineup of minibosses.
-  const packs: Array<{ weight: number; cost: number; build: () => void }> = [
+  // Pack archetypes: [weights, cost, builder]. The pool buys packs until it
+  // runs dry; scatter weights skew toward swarms so the field reads as a
+  // horde with punctuation, not a lineup of minibosses. Guard weights pick
+  // who stands watch at the exit: watchful and dangerous archetypes — no
+  // swarms (they read as scatter) and no spawners (they never move anyway).
+  interface Pack {
+    weight: number;
+    guardWeight: number;
+    cost: number;
+    build: (center: { x: number; z: number }, postRadius: number) => void;
+  }
+  const packs: Pack[] = [
     {
       weight: 0.3,
+      guardWeight: 0,
       cost: 16,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center, postRadius) => {
         const n = 6 + ROT.RNG.getUniformInt(0, 4);
-        for (let i = 0; i < n; i++) list.push(chaff(near(center)));
+        for (let i = 0; i < n; i++) list.push(chaff(near(center), postRadius));
       },
     },
     {
       weight: 0.14,
+      guardWeight: 0.25,
       cost: 14,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center, postRadius) => {
         const n = 3 + ROT.RNG.getUniformInt(0, 2);
         for (let i = 0; i < n; i++) {
           const weapon = generateWeapon('melee', 1, 5);
@@ -195,6 +320,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
               tint: '#3fbf8f',
               weapon,
               drops: rollDrops(weapon, 0.25, 0.2),
+              postRadius,
             }),
           );
         }
@@ -202,9 +328,9 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     },
     {
       weight: 0.15,
+      guardWeight: 0.35,
       cost: 12,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center, postRadius) => {
         const n = 2 + ROT.RNG.getUniformInt(0, 1);
         for (let i = 0; i < n; i++) {
           const weapon = generateWeapon('ranged', 1, 6 + 2 * area);
@@ -219,6 +345,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
               // A watchman's gaze: long and narrow.
               sight: +(7.5 + ROT.RNG.getUniform() * 1.5).toFixed(1),
               fov: +(0.35 + ROT.RNG.getUniform() * 0.15).toFixed(2),
+              postRadius,
             }),
           );
         }
@@ -226,9 +353,9 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     },
     {
       weight: 0.15,
+      guardWeight: 0.15,
       cost: 12,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center, postRadius) => {
         const n = 3 + ROT.RNG.getUniformInt(0, 2);
         for (let i = 0; i < n; i++) {
           list.push(
@@ -243,6 +370,7 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
               sight: 4,
               fov: +(1.0 + ROT.RNG.getUniform() * 0.2).toFixed(2),
               hearing: 3.5,
+              postRadius,
             }),
           );
         }
@@ -250,9 +378,9 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     },
     {
       weight: 0.08,
+      guardWeight: 0,
       cost: 18,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center) => {
         const pending: Entity[] = [];
         for (let i = 0; i < 4 + area; i++) pending.push(chaff(center));
         list.push(
@@ -270,9 +398,9 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
     },
     {
       weight: 0.18,
+      guardWeight: 0.25,
       cost: 20,
-      build: () => {
-        const center = candidates[ROT.RNG.getUniformInt(0, candidates.length - 1)];
+      build: (center, postRadius) => {
         const level = Math.min(3, 1 + Math.ceil(area / 2));
         // Elites carry guns: the marquee drops of a ranged-only player.
         const weapon = generateWeapon('ranged', level, weaponBudget(level) + 3 + area);
@@ -289,28 +417,50 @@ function spawnMobs(map: GameMap, area: number): Entity[] {
             // The area's jackpot: always the gun AND a good cog.
             drops: { weapon, part: generateMechanism(partTier + 1) },
             resist: { knockback: 0.4 + 0.1 * level, stagger: 0.3 + 0.1 * level },
+            postRadius,
           }),
         );
-        for (let i = 0; i < 2; i++) list.push(chaff(near(center)));
+        for (let i = 0; i < 2; i++) list.push(chaff(near(center), postRadius));
       },
     },
   ];
-  const totalWeight = packs.reduce((s, p) => s + p.weight, 0);
 
-  while (pool >= Math.min(...packs.map((p) => p.cost))) {
-    let roll = ROT.RNG.getUniform() * totalWeight;
-    let pick = packs[0];
-    for (const p of packs) {
-      roll -= p.weight;
-      if (roll <= 0) {
-        pick = p;
-        break;
+  /** Spend a point budget on packs centered on cells from `centers`. Guard
+   *  purchases use the guard weights and roll each pack a leash: mostly
+   *  tight sentries, sometimes a wide patroller. */
+  const runPool = (points: number, centers: Array<{ x: number; z: number }>, guard: boolean) => {
+    const weightOf = (p: Pack) => (guard ? p.guardWeight : p.weight);
+    const eligible = packs.filter((p) => weightOf(p) > 0);
+    if (eligible.length === 0 || centers.length === 0) return;
+    const totalWeight = eligible.reduce((s, p) => s + weightOf(p), 0);
+    const minCost = Math.min(...eligible.map((p) => p.cost));
+    while (points >= minCost) {
+      let roll = ROT.RNG.getUniform() * totalWeight;
+      let pick = eligible[0];
+      for (const p of eligible) {
+        roll -= weightOf(p);
+        if (roll <= 0) {
+          pick = p;
+          break;
+        }
       }
+      if (pick.cost > points) continue; // reroll — an affordable pack exists
+      points -= pick.cost;
+      const center = centers[ROT.RNG.getUniformInt(0, centers.length - 1)];
+      const postRadius = guard
+        ? ROT.RNG.getUniform() < 0.6
+          ? 1.5 + ROT.RNG.getUniform()
+          : 3.5 + ROT.RNG.getUniform() * 2.5
+        : 0;
+      pick.build(center, postRadius);
     }
-    if (pick.cost > pool) continue; // reroll — an affordable pack exists
-    pool -= pick.cost;
-    pick.build();
-  }
+  };
+
+  // Guard purchases first (fixed draw order keeps the roster deterministic),
+  // then the rest of the pool scatters across the map as before.
+  const guardPool = exitCells.length > 0 ? Math.round(pool * 0.35) : 0;
+  runPool(guardPool, exitCells, true);
+  runPool(pool - guardPool, candidates, false);
   return list;
 }
 
@@ -340,20 +490,27 @@ export default function App() {
     health: { current: 30, max: 30 },
     hitFlash: 0,
     stun: 0,
+    reveal: 0,
     pos: { x: 0, z: 0 }, // placed at the area entry by the effect below
     vel: { x: 0, z: 0 },
     radius: 0.35,
   }));
   const [playerHp, setPlayerHp] = useState(30);
 
-  // Entering an area: player starts at the west-edge entry, mobs roll fresh.
+  // Entering an area: player starts at the west-edge entry; destructibles
+  // stamp their cells first (mob spawn candidates must avoid them), then
+  // the mob roster rolls.
   const [mobEntities, setMobEntities] = useState<Entity[]>([]);
+  const [destructibleEntities, setDestructibleEntities] = useState<Entity[]>([]);
   useEffect(() => {
     playerEntity.pos!.x = cellToWorld(map.entry.x);
     playerEntity.pos!.z = cellToWorld(map.entry.z);
     playerEntity.vel!.x = 0;
     playerEntity.vel!.z = 0;
-    setMobEntities(spawnMobs(map, area));
+    const ds = spawnDestructibles(map, area);
+    setDestructibleEntities(ds);
+    const blocked = new Set(ds.map((d) => `${d.destructible!.cell.x},${d.destructible!.cell.z}`));
+    setMobEntities(spawnMobs(map, area, blocked));
   }, [map, area, playerEntity]);
 
   // World membership is managed in effects (not during render) so it stays
@@ -371,6 +528,12 @@ export default function App() {
       for (const m of mobEntities) if (world.has(m)) world.remove(m);
     };
   }, [mobEntities]);
+  useEffect(() => {
+    for (const d of destructibleEntities) world.add(d);
+    return () => {
+      for (const d of destructibleEntities) if (world.has(d)) world.remove(d);
+    };
+  }, [destructibleEntities]);
 
   // Inventory: pickups collect here; nothing auto-equips (grabbing a worse
   // gun mid-fight must never disarm you). The equipped weapon is a member of
@@ -446,6 +609,8 @@ export default function App() {
           setCombo(c.n);
           clearTimeout(comboTimeout.current);
           comboTimeout.current = setTimeout(() => setCombo(0), 2000);
+        } else if (e.type === 'destructibleDied') {
+          setDestructibleEntities((list) => list.filter((d) => d !== e.entity));
         } else if (e.type === 'mobsSpawned') setMobEntities((list) => [...list, ...e.mobs]);
         else if (e.type === 'pickup') setInventory((inv) => [...inv, e.weapon]);
         else if (e.type === 'pickupPart') setParts((list) => [...list, e.part]);
@@ -506,7 +671,10 @@ export default function App() {
         <Terrain map={map} />
         <Player entity={playerEntity} weapon={playerWeapon} map={map} />
         {mobEntities.map((m) => (
-          <Mob key={`${area}-${m.id}`} entity={m} />
+          <Mob key={`${area}-${m.id}`} entity={m} map={map} />
+        ))}
+        {destructibleEntities.map((d) => (
+          <Destructible key={`${area}-d${d.id}`} entity={d} />
         ))}
         <Loot />
         <Projectiles />
@@ -581,6 +749,10 @@ export default function App() {
         <div className="stat">
           Idle mobs wander; the blue cone is where one looks, the gold ring how far it hears.
           Your footsteps ripple — keep them outside the ring and out of the cone to sneak.
+        </div>
+        <div className="stat">
+          Grass hides you from eyes (you fade), not ears — firing gives you away.
+          Crates break under fire; red barrels detonate and chain, hurting everyone.
         </div>
       </div>
     </>

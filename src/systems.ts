@@ -1,6 +1,15 @@
 import * as ROT from 'rot-js';
-import { world, players, mobs, projectiles, loots, corpses, burners, type Entity } from './ecs';
-import { cellToWorld, worldToCell, moveCircle, circleOverlapsWall, hasLineOfSight, type GameMap } from './worldmap';
+import { world, players, mobs, projectiles, loots, corpses, burners, destructibles, type Entity } from './ecs';
+import {
+  cellToWorld,
+  worldToCell,
+  moveCircle,
+  circleOverlapsWall,
+  overlappingWallCell,
+  hasLineOfSight,
+  KIND_FLOOR,
+  type GameMap,
+} from './worldmap';
 import type { MechanismDef, WeaponDef } from './weapons';
 import { emitGameEvent } from './events';
 
@@ -23,9 +32,6 @@ const DEFAULT_RADIUS = 0.3;
  *  this distance of its sweep radius. Long weapons therefore have a dead
  *  zone up close — a pole can't hit someone hugging you. */
 export const MELEE_BAND = 0.55;
-/** Attacking is a commitment: attackers of either kind move at this fraction
- *  of their speed from windup through the end of the swing/recovery. */
-const ATTACK_MOVE_FACTOR = 0.45;
 /** Ranged aim time before the shot releases (the interruptible window). */
 const RANGED_AIM = 0.15;
 /** Landed hits freeze the whole sim for a beat (a touch longer on a kill) —
@@ -108,6 +114,7 @@ export function stepSimulation(map: GameMap, delta: number): void {
   separateMobs();
   for (const e of players) {
     if (e.hitFlash) e.hitFlash = Math.max(0, e.hitFlash - delta);
+    if (e.reveal) e.reveal = Math.max(0, e.reveal - delta);
     // Hit-stun: input is ignored (Player view checks `stun`), the shove decays.
     if (e.stun && e.stun > 0) {
       e.stun -= delta;
@@ -115,14 +122,17 @@ export function stepSimulation(map: GameMap, delta: number): void {
       e.vel.x *= k;
       e.vel.z *= k;
     }
-    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, e.attack ? delta * ATTACK_MOVE_FACTOR : delta);
+    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, delta);
   }
   for (const e of mobs) {
-    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, e.attack ? delta * ATTACK_MOVE_FACTOR : delta);
+    moveCircle(map, e.pos, e.vel, e.radius ?? DEFAULT_RADIUS, delta);
+  }
+  for (const d of destructibles) {
+    if (d.hitFlash) d.hitFlash = Math.max(0, d.hitFlash - delta);
   }
   stepProjectiles(map, delta);
   tickBurning(delta);
-  processExplosions();
+  processExplosions(map);
   stepCorpses(map, delta);
   checkPickups();
   checkExit(map);
@@ -302,12 +312,21 @@ function chainLightning(start: Entity, baseDamage: number, m: MechanismDef, mech
  * and kills it causes may queue further explosions — processed in the same
  * pass, so chain reactions resolve within the tick.
  */
-function processExplosions(): void {
+function processExplosions(map: GameMap): void {
   for (let guard = 0; explosionQueue.length > 0 && guard < 64; guard++) {
     const ex = explosionQueue.shift()!;
     emitGameEvent({ type: 'explosion', x: ex.x, z: ex.z, radius: ex.radius });
     viewFx.shake = Math.min(0.5, viewFx.shake + 0.18);
     hitStop = Math.max(hitStop, HIT_STOP);
+
+    // Blasts break crates and barrels no matter whose they are — a barrel's
+    // own death queues the next explosion, so chains resolve this same pass
+    // (bounded by the guard). Snapshot: the sink removes the dead.
+    for (const d of [...destructibles]) {
+      if (Math.hypot(d.pos.x - ex.x, d.pos.z - ex.z) <= ex.radius + 0.5) {
+        damageDestructible(map, d, ex.damage);
+      }
+    }
 
     if (ex.hitMobs) {
       const victims = [...mobs].filter(
@@ -336,6 +355,44 @@ function processExplosions(): void {
       }
     }
   }
+}
+
+/** The destructible entity occupying a grid cell, if any. Linear scan —
+ *  tens of entities, deterministic order. */
+function destructibleAt(cx: number, cz: number): Entity | undefined {
+  for (const d of destructibles) {
+    if (d.destructible.cell.x === cx && d.destructible.cell.z === cz) return d;
+  }
+  return undefined;
+}
+
+/** Damage sink for crates and barrels — the destructible counterpart of
+ *  damageMob. Death carves the stamped cell back to floor (isWall closes
+ *  over the live grid, so collision/LOS/A* honor it the same tick),
+ *  detonates a barrel's charge into the queue, and tells React to unmount. */
+function damageDestructible(map: GameMap, d: Entity, amount: number): void {
+  if (!d.health || !d.pos || !d.destructible || d.health.current <= 0) return; // already breaking
+  d.hitFlash = 0.2;
+  emitGameEvent({ type: 'damage', x: d.pos.x, z: d.pos.z, amount, target: 'mob' });
+  d.health.current -= amount;
+  if (d.health.current > 0) return;
+
+  const c = d.destructible.cell;
+  map.cells[c.z * map.width + c.x] = 0;
+  map.kinds[c.z * map.width + c.x] = KIND_FLOOR;
+  if (d.destructible.explosive) {
+    // Barrels are indiscriminate, like exploder mobs — both sides burn.
+    queueExplosion({
+      x: d.pos.x,
+      z: d.pos.z,
+      radius: d.destructible.explosive.radius,
+      damage: d.destructible.explosive.damage,
+      hitMobs: true,
+      hitPlayer: true,
+    });
+  }
+  world.remove(d);
+  emitGameEvent({ type: 'destructibleDied', entity: d });
 }
 
 /** Corpses fly out with the killing shove, tumble, and evaporate. They still
@@ -406,7 +463,6 @@ function damagePlayer(
   player.stun = Math.min(PLAYER_STUN_CAP, Math.max(player.stun ?? 0, stagger));
   cancelWindup(player);
   hitStop = Math.max(hitStop, HIT_STOP);
-  emitGameEvent({ type: 'damage', x: player.pos!.x, z: player.pos!.z, amount, target: 'player' });
 
   const scald = mech(ctx?.mechanisms, 'scald');
   if (scald) igniteScald(player, scald);
@@ -414,6 +470,9 @@ function damagePlayer(
   const h = player.health;
   if (!h || h.current <= 0) return;
   h.current -= amount;
+  // Emit AFTER the subtraction: the HP readout reads the live value off the
+  // entity when this event lands.
+  emitGameEvent({ type: 'damage', x: player.pos!.x, z: player.pos!.z, amount, target: 'player' });
   if (h.current <= 0) emitGameEvent({ type: 'playerDied' });
 }
 
@@ -605,6 +664,7 @@ function fireProjectiles(
         pierce: faction === 'player' ? weapon.pierce : false, // vs a single player, pierce is meaningless
         bounces: ricochet ? 1 + Math.floor(ricochet.power / 2) : 0,
         splits: split ? 3 + Math.floor(split.power / 2) : 0,
+        blast: weapon.blastRadius,
         mechanisms: weapon.mechanisms,
         struck: [],
       },
@@ -637,6 +697,7 @@ function spawnFragments(p: Entity & { projectile: NonNullable<Entity['projectile
         pierce: false,
         bounces: 0,
         splits: 0,
+        blast: 0,
         mechanisms: [],
         struck: [...p.projectile.struck],
       },
@@ -653,6 +714,9 @@ function spawnFragments(p: Entity & { projectile: NonNullable<Entity['projectile
  *  and the whole attack always fits inside the 1/rate cadence. */
 function startAttack(attacker: Entity, weapon: WeaponDef): void {
   if (attacker.attack) return;
+  // Attacking gives you away: grass concealment breaks for a beat (both
+  // sides set it — one combat path; perception reads the player's).
+  attacker.reveal = 1.0;
   attacker.attack =
     weapon.kind === 'melee'
       ? {
@@ -790,6 +854,7 @@ function updateEnemyAI(map: GameMap, delta: number): void {
 
   for (const mob of mobs) {
     if (mob.hitFlash) mob.hitFlash = Math.max(0, mob.hitFlash - delta);
+    if (mob.reveal) mob.reveal = Math.max(0, mob.reveal - delta);
     const brain = mob.brain;
     if (!brain) continue;
 
@@ -808,13 +873,24 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     // by eye — inside the sight distance AND the facing cone AND with clear
     // line of sight. Latches on. Until then, the mob wanders — which is
     // exactly what swings its cone around and makes sneaking dynamic.
+    // Grass (Brawl rules): a quiet player standing in grass is invisible to
+    // eyes at any range, and grass on the sight line blocks it too — unless
+    // the mob is inside grass itself, or the player just fired (`reveal`,
+    // which also lets the shot be seen through the bush it came from).
+    // Ears don't care. Alerted mobs don't either: the latch is permanent.
     if (!brain.alerted) {
       const aim = mob.aim ?? { x: 0, z: 1 };
       const facing =
         dist > 1e-4 && (aim.x * (pp.x - mob.pos.x) + aim.z * (pp.z - mob.pos.z)) / dist >= Math.cos(brain.fov);
+      const revealed = (player.reveal ?? 0) > 0;
+      const playerHidden = !revealed && map.isGrass(pCellX, pCellZ);
+      const mobInGrass = map.isGrass(worldToCell(mob.pos.x), worldToCell(mob.pos.z));
       brain.alerted =
         dist <= brain.hearing ||
-        (dist <= brain.sight && facing && hasLineOfSight(map, mob.pos, pp));
+        (dist <= brain.sight &&
+          facing &&
+          !playerHidden &&
+          hasLineOfSight(map, mob.pos, pp, !mobInGrass && !revealed));
       if (!brain.alerted) {
         wander(map, mob, delta);
         continue;
@@ -879,10 +955,13 @@ function wander(map: GameMap, mob: Entity & { pos: { x: number; z: number }; vel
     if (ROT.RNG.getUniform() < 0.35) {
       brain.wanderTarget = undefined; // rest a beat
     } else {
+      // Posted guards stroll around their anchor (and drift back to it after
+      // a shove); free mobs stroll around wherever they stand.
+      const anchor = brain.post ?? mob.pos;
       const a = ROT.RNG.getUniform() * Math.PI * 2;
-      const d = 1.5 + ROT.RNG.getUniform() * 2.5;
-      const tx = mob.pos.x + Math.sin(a) * d;
-      const tz = mob.pos.z + Math.cos(a) * d;
+      const d = brain.post ? ROT.RNG.getUniform() * brain.post.radius : 1.5 + ROT.RNG.getUniform() * 2.5;
+      const tx = anchor.x + Math.sin(a) * d;
+      const tz = anchor.z + Math.cos(a) * d;
       if (!circleOverlapsWall(map, tx, tz, mob.radius ?? DEFAULT_RADIUS)) {
         brain.wanderTarget = { x: tx, z: tz };
       }
@@ -949,11 +1028,32 @@ function stepProjectile(
   p.projectile.traveled += p.projectile.speed * dt;
   const r = p.radius ?? 0.1;
 
+  // Blast shots detonate wherever their flight ends. Faction flags give the
+  // Brawl rule for free: your blasts hurt only mobs, theirs only you.
+  const detonate = () =>
+    queueExplosion({
+      x: p.pos.x,
+      z: p.pos.z,
+      radius: p.projectile.blast,
+      damage: p.projectile.damage,
+      hitMobs: p.projectile.faction === 'player',
+      hitPlayer: p.projectile.faction === 'mob',
+      mechanisms: p.projectile.mechanisms,
+    });
+
   if (p.projectile.traveled > p.projectile.maxRange) {
+    if (p.projectile.blast > 0) detonate();
     if (p.projectile.splits > 0) spawnFragments(p);
     return true;
   }
-  if (circleOverlapsWall(map, p.pos.x, p.pos.z, r)) {
+  const wallCell = overlappingWallCell(map, p.pos.x, p.pos.z, r);
+  if (wallCell) {
+    // A crate or barrel takes the hit as damage before the shot resolves —
+    // either faction breaks them. The shot still dies/bounces here exactly
+    // like against rock (a ricochet dents the crate and flies on; a blast
+    // shot detonates against it, and the explosion may finish it off).
+    const d = destructibleAt(wallCell.x, wallCell.z);
+    if (d) damageDestructible(map, d, p.projectile.damage);
     if (p.projectile.bounces > 0) {
       // Ricochet: back out to the pre-step position and reflect on whichever
       // axis (or both, at a corner) the wall was hit along — grid walls are
@@ -967,11 +1067,10 @@ function stepProjectile(
       p.pos.z = pz;
       return false;
     }
-    if (p.projectile.splits > 0) {
-      p.pos.x = px;
-      p.pos.z = pz;
-      spawnFragments(p);
-    }
+    p.pos.x = px;
+    p.pos.z = pz;
+    if (p.projectile.blast > 0) detonate();
+    if (p.projectile.splits > 0) spawnFragments(p);
     return true;
   }
 
@@ -986,10 +1085,16 @@ function stepProjectile(
       player &&
       Math.hypot(player.pos.x - p.pos.x, player.pos.z - p.pos.z) < r + (player.radius ?? DEFAULT_RADIUS)
     ) {
-      // A pulling shot yanks the target back along its own flight path.
-      const dir = pull ? -1 : 1;
-      const kb = pull ? p.projectile.knockback + pull.power : p.projectile.knockback;
-      damagePlayer(player, p.projectile.damage, (dir * p.vel.x) / s, (dir * p.vel.z) / s, kb, p.projectile.stagger, ctx);
+      if (p.projectile.blast > 0) {
+        // The explosion covers the direct target too — damage applies once,
+        // and processExplosions supplies the knockback.
+        detonate();
+      } else {
+        // A pulling shot yanks the target back along its own flight path.
+        const dir = pull ? -1 : 1;
+        const kb = pull ? p.projectile.knockback + pull.power : p.projectile.knockback;
+        damagePlayer(player, p.projectile.damage, (dir * p.vel.x) / s, (dir * p.vel.z) / s, kb, p.projectile.stagger, ctx);
+      }
       if (p.projectile.splits > 0) spawnFragments(p);
       return true;
     }
@@ -1005,6 +1110,18 @@ function stepProjectile(
     const dx = mob.pos.x - p.pos.x;
     const dz = mob.pos.z - p.pos.z;
     if (Math.hypot(dx, dz) < r + (mob.radius ?? DEFAULT_RADIUS)) victims.push(mob);
+  }
+  if (p.projectile.blast > 0) {
+    // Blast shots don't damage bodies directly — the detonation covers the
+    // point of impact. A piercing blast shot flies through bodies and only
+    // detonates at a wall or end of range (deliberate: pierce buys reach
+    // through the crowd, blast buys the bang at the end).
+    if (victims.length > 0 && !p.projectile.pierce) {
+      detonate();
+      if (p.projectile.splits > 0) spawnFragments(p);
+      return true;
+    }
+    return false;
   }
   for (const mob of victims) {
     const dir = pull ? -1 : 1;

@@ -60,7 +60,8 @@ export function Inventory({
             <div className="inv-stats">
               dmg {w.damage} · {w.rate}/s · range {w.reach}
               {w.count > 1 ? ` · ×${w.count} shots` : ''}
-              {w.pierce ? ' · pierce' : ''} · kb {w.knockback}
+              {w.pierce ? ' · pierce' : ''}
+              {w.blastRadius > 0 ? ` · blast ${w.blastRadius}` : ''} · kb {w.knockback}
             </div>
             <div className="inv-fittings">
               {w.mechanisms.map((m) => (

@@ -30,8 +30,18 @@ they land (git history is the changelog).
   weapons you construct.** Real-time on an open seeded overworld — scattered
   obstacle clusters to kite around. Pack-based spawning (swarms, rushers,
   snipers, exploders, spawners, elites), loot-driven itemization.
+- **Move-and-shoot at full speed** (Brawl Stars feel): attacking is not a
+  movement commitment for either side — kiting IS the combat.
 - **The player is ranged-only.** Guns fire at the cursor / aim stick; melee
-  exists solely on the mob side, and only gun-carriers drop weapons.
+  exists solely on the mob side, and only gun-carriers drop weapons. Blast
+  radius is a rolled flat purchase (like pierce/multishot): some guns
+  detonate where the shot ends.
+- **The map fights back:** grass conceals (eyes fail at any range, ears
+  still work, firing reveals you), crates are cover until they're shot
+  apart, and barrels detonate and chain, hurting both sides.
+- **The exit is defended:** a share of each area's spawn pool stations
+  guard packs around the exit pad on sentry/patrol leashes; the rest of the
+  roster roams the field as before.
 - **Weapons are constructed, not just rolled:** guns roll fitting slots;
   **cogs** (mechanism parts) drop and install to change what an attack DOES
   — chain, scald, pull, corpse-burst, ricochet, split. Behaviors are shared
@@ -67,7 +77,8 @@ they land (git history is the changelog).
   level mix, their placement — with each mob then rolling its own stat pool
   as today.
 - Sweep the remaining hardcoded per-mob values (sight, hearing, attack
-  standoff) into the spawn roll.
+  standoff) into the spawn roll. The guard-pool share and the destructible
+  pool (`App.spawnDestructibles`) should fold into the same area budget.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
 ### 3. Footsteps & noise (the mechanic)

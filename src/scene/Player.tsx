@@ -14,7 +14,7 @@ import {
 } from 'three';
 import { mobs, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
-import { circleOverlapsWall, type GameMap } from '../worldmap';
+import { circleOverlapsWall, worldToCell, type GameMap } from '../worldmap';
 import { keyboard } from '../input';
 import { touch } from '../touch';
 import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
@@ -231,6 +231,10 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
 
     // --- Mirror sim position; camera follows (plus kill/blast trembles) ---
     if (bodyMat.current) bodyMat.current.emissive.set((entity.hitFlash ?? 0) > 0 ? '#ffffff' : '#000000');
+    // Concealment tell: faded = in grass and unseen by mob eyes (the same
+    // condition the perception gate tests).
+    const hidden = map.isGrass(worldToCell(pos.x), worldToCell(pos.z)) && (entity.reveal ?? 0) <= 0;
+    if (bodyMat.current) bodyMat.current.opacity = hidden ? 0.4 : 1;
     group.current?.position.set(pos.x, BODY_Y, pos.z);
     camTarget.set(pos.x + CAM_OFFSET.x, BODY_Y + CAM_OFFSET.y, pos.z + CAM_OFFSET.z);
     camera.position.lerp(camTarget, 0.1);
@@ -250,7 +254,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     <group ref={group}>
       <mesh castShadow>
         <capsuleGeometry args={[0.35, 0.6, 8, 16]} />
-        <meshStandardMaterial ref={bodyMat} color="#4ea1ff" />
+        <meshStandardMaterial ref={bodyMat} color="#4ea1ff" transparent />
       </mesh>
       {/* Pivot rotates to the aim and sweeps on swing. Ranged holds the gun
           mesh; melee holds no weapon — just the strike bolt out at reach,

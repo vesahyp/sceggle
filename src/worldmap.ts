@@ -16,11 +16,18 @@ const cellMax = (c: number) => (c + 0.5) * TILE;
 
 export type Cell = 0 | 1; // 0 = floor, 1 = solid
 
-/** What a solid cell IS, for the renderer: terrain rock or built ruin wall.
- *  Collision doesn't care — everything solid blocks the same. */
+/** What a cell IS, beyond blocking. Solid kinds (rock, ruin) block the same;
+ *  grass is a FLOOR kind — walkable, but it conceals whoever stands in it
+ *  from mob eyesight (see systems' perception gate). */
 export const KIND_FLOOR = 0;
 export const KIND_ROCK = 1;
 export const KIND_RUIN = 2;
+export const KIND_GRASS = 3;
+/** Destructibles: solid kinds stamped AFTER generation (by the area spawn
+ *  code), each backed by an ECS entity with health. When one dies its cell
+ *  is carved back to floor — collision/LOS/A* honor that immediately. */
+export const KIND_CRATE = 4;
+export const KIND_BARREL = 5;
 
 export interface GameMap {
   width: number;
@@ -30,7 +37,7 @@ export interface GameMap {
   /** Per-cell kind (KIND_*), same indexing — rendering flavor only. */
   kinds: Uint8Array;
   /** Area palette, rolled with the map so the biome varies per seed. */
-  palette: { ground: string; rock: string; ruin: string };
+  palette: { ground: string; rock: string; ruin: string; grass: string };
   /** Walkable floor cells, in row-major order. */
   floors: Array<{ x: number; z: number }>;
   /** Where the player enters the area: floor cell nearest the west edge. */
@@ -38,6 +45,8 @@ export interface GameMap {
   /** Stepping here leaves the area: floor cell nearest the east edge. */
   exit: { x: number; z: number };
   isWall: (x: number, z: number) => boolean;
+  /** Walkable grass at this cell — concealment, not collision. */
+  isGrass: (x: number, z: number) => boolean;
 }
 
 /** Muted hsl → hex, for the rolled area palettes. */
@@ -111,6 +120,8 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
     ground: hsl(hue, 0.14, 0.16),
     rock: hsl(hue, 0.17, 0.33),
     ruin: '#6d6353',
+    // Grass must read as grass whatever the biome hue — always green-ish.
+    grass: hsl(95 + ROT.RNG.getUniform() * 40, 0.35, 0.3),
   };
 
   // 2) Ruins: wall the shell, clear the floor, knock a doorway in two
@@ -196,12 +207,45 @@ export function generateWorldMap(width: number, height: number, seed?: number): 
   const entry = nearestFloor(floors, entryPt.x, entryPt.z);
   const exit = nearestFloor(floors, exitPt.x, exitPt.z);
 
+  // 5) Grass: concealment blobs stamped onto surviving floor — after the
+  //    region pass so no later carving can orphan them. Anchored on the
+  //    arenas (cover where the fights are) plus a scatter of loose tufts.
+  const stampGrass = (cx: number, cz: number, r: number) => {
+    for (let z = Math.max(1, Math.ceil(cz - r)); z <= Math.min(height - 2, Math.floor(cz + r)); z++) {
+      for (let x = Math.max(1, Math.ceil(cx - r)); x <= Math.min(width - 2, Math.floor(cx + r)); x++) {
+        if ((x - cx) ** 2 + (z - cz) ** 2 <= r * r && cells[z * width + x] === 0) {
+          kinds[z * width + x] = KIND_GRASS;
+        }
+      }
+    }
+  };
+  for (const a of arenas) {
+    const blobs = 1 + ROT.RNG.getUniformInt(0, 1);
+    for (let i = 0; i < blobs; i++) {
+      stampGrass(
+        a.x + ROT.RNG.getUniformInt(-3, 3),
+        a.z + ROT.RNG.getUniformInt(-3, 3),
+        1.5 + ROT.RNG.getUniform() * 1.5,
+      );
+    }
+  }
+  const looseTufts = 3 + ROT.RNG.getUniformInt(0, 2);
+  for (let i = 0; i < looseTufts; i++) {
+    const c = floors[ROT.RNG.getUniformInt(0, floors.length - 1)];
+    stampGrass(c.x, c.z, 1.5 + ROT.RNG.getUniform() * 1.5);
+  }
+
   const isWall = (x: number, z: number) => {
     if (x < 0 || z < 0 || x >= width || z >= height) return true;
     return cells[z * width + x] === 1;
   };
+  const isGrass = (x: number, z: number) => {
+    if (x < 0 || z < 0 || x >= width || z >= height) return false;
+    const i = z * width + x;
+    return cells[i] === 0 && kinds[i] === KIND_GRASS;
+  };
 
-  return { width, height, cells, kinds, palette, floors, entry, exit, isWall };
+  return { width, height, cells, kinds, palette, floors, entry, exit, isWall, isGrass };
 }
 
 /** Floor cell closest to a target grid point. */
@@ -219,17 +263,23 @@ function nearestFloor(floors: Array<{ x: number; z: number }>, tx: number, tz: n
 }
 
 /** True if the straight segment between two world points crosses no solid
- *  cell — sampled every quarter-tile, plenty at our obstacle sizes. */
+ *  cell — sampled every quarter-tile, plenty at our obstacle sizes. With
+ *  `grassBlocks`, grass cells also break the line: eyes can't pierce a bush
+ *  from outside (perception uses this; combat code keeps walls-only). */
 export function hasLineOfSight(
   map: GameMap,
   a: { x: number; z: number },
   b: { x: number; z: number },
+  grassBlocks = false,
 ): boolean {
   const dist = Math.hypot(b.x - a.x, b.z - a.z);
   const steps = Math.ceil(dist / (TILE * 0.25));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    if (map.isWall(worldToCell(a.x + (b.x - a.x) * t), worldToCell(a.z + (b.z - a.z) * t))) return false;
+    const cx = worldToCell(a.x + (b.x - a.x) * t);
+    const cz = worldToCell(a.z + (b.z - a.z) * t);
+    if (map.isWall(cx, cz)) return false;
+    if (grassBlocks && map.isGrass(cx, cz)) return false;
   }
   return true;
 }
@@ -331,13 +381,25 @@ export function moveCircle(
 
 /** True if a circle at (x, z) overlaps any solid cell (projectile impacts). */
 export function circleOverlapsWall(map: GameMap, x: number, z: number, r: number): boolean {
+  return overlappingWallCell(map, x, z, r) !== null;
+}
+
+/** The first solid cell (deterministic row-major scan) a circle at (x, z)
+ *  overlaps, or null — so projectile impacts can ask WHAT they hit and
+ *  route the hit to a destructible's entity when one occupies the cell. */
+export function overlappingWallCell(
+  map: GameMap,
+  x: number,
+  z: number,
+  r: number,
+): { x: number; z: number } | null {
   for (let cz = worldToCell(z - r); cz <= worldToCell(z + r); cz++) {
     for (let cx = worldToCell(x - r); cx <= worldToCell(x + r); cx++) {
       if (!map.isWall(cx, cz)) continue;
       const dx = x - Math.min(Math.max(x, cellMin(cx)), cellMax(cx));
       const dz = z - Math.min(Math.max(z, cellMin(cz)), cellMax(cz));
-      if (dx * dx + dz * dz < r * r) return true;
+      if (dx * dx + dz * dz < r * r) return { x: cx, z: cz };
     }
   }
-  return false;
+  return null;
 }

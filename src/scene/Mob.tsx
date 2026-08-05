@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import { DoubleSide, Group, Mesh, MeshStandardMaterial, RingGeometry } from 'three';
 import type { Entity } from '../ecs';
+import { worldToCell, type GameMap } from '../worldmap';
 import { bladeAngle } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
@@ -29,7 +30,7 @@ HEARING_RING_GEOM.rotateX(-Math.PI / 2);
  * bar, a "staggered" label, and the idle sight ring. In a horde, chaff with
  * bars is just noise — one-hit mobs don't need a gauge.
  */
-export function Mob({ entity }: { entity: Entity }) {
+export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
   const group = useRef<Group>(null);
   const mat = useRef<MeshStandardMaterial>(null);
   const weaponPivot = useRef<Group>(null);
@@ -81,6 +82,11 @@ export function Mob({ entity }: { entity: Entity }) {
                   : '#000000',
       );
       mat.current.emissiveIntensity = flash || strobing ? 0.9 : 1;
+      // Grass is real for mobs too — the same fade tell the player gets
+      // (render-only: mobs get no concealment from the player's perception,
+      // because the player has none; the Vision fog does that job).
+      mat.current.opacity =
+        entity.pos && map.isGrass(worldToCell(entity.pos.x), worldToCell(entity.pos.z)) ? 0.55 : 1;
     }
     if (idleSenses.current) idleSenses.current.visible = !entity.brain?.alerted;
     statusPivot.current?.quaternion.copy(camera.quaternion);
@@ -105,7 +111,7 @@ export function Mob({ entity }: { entity: Entity }) {
     <group ref={group} scale={scale}>
       <mesh castShadow>
         <capsuleGeometry args={[0.32, 0.5, 8, 16]} />
-        <meshStandardMaterial ref={mat} color={tint} />
+        <meshStandardMaterial ref={mat} color={tint} transparent />
       </mesh>
       {/* Melee mobs hold no weapon mesh — their strike bolt (below, in
           unscaled space) is the attack visual, like a shot on an arc path. */}

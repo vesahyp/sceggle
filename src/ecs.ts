@@ -50,6 +50,11 @@ export interface Entity {
    *  steer — the incoming knockback plays out and decays instead. */
   stun?: number;
 
+  /** Seconds grass concealment stays broken after attacking — firing gives
+   *  you away (Brawl rule). Set by startAttack for BOTH sides (one combat
+   *  path); only the player's is read by perception today. */
+  reveal?: number;
+
   /** An in-flight attack, either kind: `t` runs over windup + duration.
    *  During `windup` nothing can connect — the blade winds back, the shot is
    *  drawn — that's the telegraph, and a staggering hit cancels it. Then
@@ -103,6 +108,17 @@ export interface Entity {
   /** Steering speed (world units/s) — bought from the mob's spawn pool. */
   moveSpeed?: number;
 
+  /** Breakable blocker occupying one grid cell that was stamped solid at
+   *  spawn. Shots and explosions damage it; at 0 HP the cell carves back to
+   *  floor (collision/LOS/A* honor it immediately) and the view unmounts.
+   *  Barrels carry `explosive` and detonate on death — hurting BOTH sides
+   *  and chaining through the explosion queue. Not a mob: no `vel`, no
+   *  `mob` tag, so crowd/AI/melee systems ignore it by construction. */
+  destructible?: {
+    cell: { x: number; z: number };
+    explosive?: { radius: number; damage: number };
+  };
+
   /** Presence makes the entity a ground pickup. Exactly one of the two:
    *  a weapon (walk over to equip) or a mechanism part (walk over to install
    *  into the equipped weapon — skipped, left lying, if incompatible). */
@@ -127,6 +143,8 @@ export interface Entity {
     bounces: number;
     /** Fragments to shatter into on impact (the `split` mechanism); 0 = none. */
     splits: number;
+    /** Detonation radius where the shot ends its flight; 0 = plain shot. */
+    blast: number;
     /** On-hit mechanisms carried from the firing weapon (chain, scald, …). */
     mechanisms: MechanismDef[];
     /** Mobs already hit — a piercing projectile hurts each mob only once. */
@@ -167,6 +185,10 @@ export interface Entity {
      *  until the next decision roll. */
     wanderTarget?: { x: number; z: number };
     wanderIn: number;
+    /** Guard post: when set, wander targets are picked around this anchor
+     *  instead of the mob's own position — the mob holds its station until
+     *  alerted. Radius is the leash: small = sentry, large = patroller. */
+    post?: { x: number; z: number; radius: number };
   };
 }
 
@@ -180,6 +202,7 @@ export const projectiles = world.with('projectile', 'pos', 'vel');
 export const loots = world.with('loot', 'pos');
 export const corpses = world.with('corpse', 'pos', 'vel');
 export const burners = world.with('burning', 'health', 'pos');
+export const destructibles = world.with('destructible', 'pos', 'health');
 
 // Dev-only: expose the world for debugging in the browser console.
 if (import.meta.env.DEV) {
