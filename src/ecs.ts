@@ -37,6 +37,9 @@ export interface Entity {
 
   /** Unit vector (x,z) the entity is aiming/facing. Drives swing direction. */
   aim?: { x: number; z: number };
+  /** World distance to the aim TARGET (cursor / hunted player) — lob shots
+   *  land there instead of flying to max range. Views/AI keep it fresh. */
+  aimDist?: number;
 
   /** Example stat component — extend with armor, statuses, etc. */
   health?: { current: number; max: number };
@@ -119,6 +122,19 @@ export interface Entity {
     explosive?: { radius: number; damage: number };
   };
 
+  /** A patch of burning ground left by a lob shell: ticks damage on the
+   *  opposing side while `life` runs down. A state, not an impact — ticks
+   *  carry no knockback or hit-stop (like `burning`). */
+  zone?: {
+    faction: 'player' | 'mob';
+    radius: number;
+    /** Damage per tick. */
+    damage: number;
+    interval: number;
+    next: number;
+    life: number;
+  };
+
   /** Presence makes the entity a ground pickup. Exactly one of the two:
    *  a weapon (walk over to equip) or a mechanism part (walk over to install
    *  into the equipped weapon — skipped, left lying, if incompatible). */
@@ -145,6 +161,10 @@ export interface Entity {
     splits: number;
     /** Detonation radius where the shot ends its flight; 0 = plain shot. */
     blast: number;
+    /** Lobbed: arcs over walls AND bodies, resolves only at end of flight. */
+    lob: boolean;
+    /** Seconds of ground fire left behind where a lob lands; 0 = none. */
+    linger: number;
     /** On-hit mechanisms carried from the firing weapon (chain, scald, …). */
     mechanisms: MechanismDef[];
     /** Mobs already hit — a piercing projectile hurts each mob only once. */
@@ -203,6 +223,7 @@ export const loots = world.with('loot', 'pos');
 export const corpses = world.with('corpse', 'pos', 'vel');
 export const burners = world.with('burning', 'health', 'pos');
 export const destructibles = world.with('destructible', 'pos', 'health');
+export const zones = world.with('zone', 'pos');
 
 // Dev-only: expose the world for debugging in the browser console.
 if (import.meta.env.DEV) {

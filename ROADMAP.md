@@ -33,9 +33,12 @@ they land (git history is the changelog).
 - **Move-and-shoot at full speed** (Brawl Stars feel): attacking is not a
   movement commitment for either side — kiting IS the combat.
 - **The player is ranged-only.** Guns fire at the cursor / aim stick; melee
-  exists solely on the mob side, and only gun-carriers drop weapons. Blast
-  radius is a rolled flat purchase (like pierce/multishot): some guns
-  detonate where the shot ends.
+  exists solely on the mob side. Guns roll a delivery archetype: **bolts**
+  fly straight and can buy blast/pierce; **lobs** arc over walls and bodies,
+  land at the cursor, always detonate, and leave burning ground (area
+  denial) — with rolled fan spread on multishot for shotgun-to-burst
+  variance. Melee-carrying mobs scavenge: a fraction hold a looted gun and
+  drop it, so the horde itself pays out weapons.
 - **The map fights back:** grass conceals (eyes fail at any range, ears
   still work, firing reveals you), crates are cover until they're shot
   apart, and barrels detonate and chain, hurting both sides.

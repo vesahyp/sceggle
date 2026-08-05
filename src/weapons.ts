@@ -132,6 +132,16 @@ export interface WeaponDef {
   count: number;
   /** Detonation radius where a shot ends its flight; 0 = direct-hit only. */
   blastRadius: number;
+  /** How the shot travels. 'bolt' flies straight and hits what it meets;
+   *  'lob' arcs OVER walls and bodies and lands at the aim point (clamped
+   *  to reach), always detonating — the mortar/area-denial archetype. */
+  delivery: 'bolt' | 'lob';
+  /** Seconds the landing zone keeps burning the ground (lob only; 0 = the
+   *  blast is all there is). */
+  linger: number;
+  /** Radians between fanned multishot projectiles — rolled per gun, from a
+   *  tight burst to a shotgun cone. */
+  spread: number;
   /** Fitting slots — how many mechanisms this weapon can host. */
   slots: number;
   /** Installed mechanisms (construction happens after the roll). */
@@ -186,6 +196,12 @@ const MAX_EXTRA_SHOTS = 2;
 /** Blast is a flat purchase like pierce: each rank widens the detonation. */
 const AOE_COST = 4;
 const MAX_AOE = 2;
+/** Ground fire is a lob-only flat purchase: each rank keeps the landing
+ *  zone burning longer. */
+const LINGER_COST = 3;
+const MAX_LINGER = 2;
+/** Share of ranged rolls that come out as lobbers. */
+const LOB_CHANCE = 0.35;
 /** Share of the pool the specialty stats soak up. */
 const SPECIALTY_SHARE = 0.65;
 /** Chance a roll sells one non-specialty stat below base to fund the rest. */
@@ -204,6 +220,11 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
   let pierce = false;
   let extraShots = 0;
   let aoe = 0;
+  let lingerRank = 0;
+  // Delivery is an archetype roll, not a purchase — it decides what the gun
+  // IS (straight-shooter vs mortar) before points decide how good it is.
+  const delivery: 'bolt' | 'lob' =
+    kind === 'ranged' && ROT.RNG.getUniform() < LOB_CHANCE ? 'lob' : 'bolt';
   let pool = budget;
 
   // Specialties first: 1–2 stats take the lion's share of the budget.
@@ -226,7 +247,12 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
 
   // Remainder sprinkles uniformly; ranged rolls can hit the flat purchases.
   const keys = [...rampKeys];
-  if (kind === 'ranged') keys.push('pierce', 'multishot', 'aoe');
+  if (kind === 'ranged') {
+    keys.push('multishot', 'aoe');
+    // Pierce means nothing to a shell that flies over bodies; lobs buy
+    // longer ground fire instead.
+    keys.push(delivery === 'lob' ? 'linger' : 'pierce');
+  }
   // Guard bounds the loop even if RNG keeps landing on unaffordable flat
   // purchases; in practice it exits when the pool runs dry.
   for (let guard = 0; pool > 0 && guard < 500; guard++) {
@@ -252,6 +278,13 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
       }
       continue;
     }
+    if (k === 'linger') {
+      if (lingerRank < MAX_LINGER && pool >= LINGER_COST) {
+        lingerRank += 1;
+        pool -= LINGER_COST;
+      }
+      continue;
+    }
     pts[k] = (pts[k] ?? 0) + 1;
     pool -= 1;
   }
@@ -263,7 +296,16 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
   const displayLevel = levelForBudget(budget);
   const damage = Math.max(1, Math.round(v('damage')));
   const reach = +v('reach').toFixed(1);
-  const speed = kind === 'ranged' ? +v('speed').toFixed(1) : 0;
+  // Lobs fly and cycle like mortars: slower shell, slower crank.
+  const speed = kind === 'ranged' ? +(v('speed') * (delivery === 'lob' ? 0.75 : 1)).toFixed(1) : 0;
+  const rate = +(v('rate') * (delivery === 'lob' ? 0.75 : 1)).toFixed(2);
+  // A lob without a bang would be a dud — every shell detonates on landing;
+  // aoe ranks widen it. Bolts still need to buy their blast.
+  const blastRadius =
+    delivery === 'lob' ? +(0.9 + 0.45 * aoe).toFixed(2) : aoe > 0 ? +(0.9 + 0.45 * (aoe - 1)).toFixed(2) : 0;
+  // Ground fire: every lob scorches at least briefly; ranks stretch it into
+  // real area denial.
+  const linger = delivery === 'lob' ? +(1.2 + 1.1 * lingerRank).toFixed(1) : 0;
 
   return {
     id: `${kind}-${displayLevel}#${++serial}`,
@@ -273,14 +315,19 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
     damage,
     knockback: +v('knockback').toFixed(1),
     stagger: +v('stagger').toFixed(2),
-    rate: +v('rate').toFixed(2),
+    rate,
     reach,
     arc: kind === 'melee' ? +v('arc').toFixed(2) : 0,
     speed,
     hitRadius: kind === 'ranged' ? +v('hitRadius').toFixed(2) : 0,
     pierce,
     count: 1 + extraShots,
-    blastRadius: aoe > 0 ? +(0.9 + 0.45 * (aoe - 1)).toFixed(2) : 0,
+    blastRadius,
+    delivery,
+    linger,
+    // Fan width is its own roll: the same two extra shots can be a tight
+    // burst or a shotgun cone.
+    spread: extraShots > 0 ? +(0.08 + ROT.RNG.getUniform() * 0.22).toFixed(3) : 0.12,
     // Fittings grow with tier (rarity will drive this later); rolls come out
     // empty — installing mechanisms is the player's job (or the spawner's,
     // for elite mobs).

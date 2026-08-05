@@ -1,5 +1,5 @@
 import * as ROT from 'rot-js';
-import { world, players, mobs, projectiles, loots, corpses, burners, destructibles, type Entity } from './ecs';
+import { world, players, mobs, projectiles, loots, corpses, burners, destructibles, zones, type Entity } from './ecs';
 import {
   cellToWorld,
   worldToCell,
@@ -131,6 +131,7 @@ export function stepSimulation(map: GameMap, delta: number): void {
     if (d.hitFlash) d.hitFlash = Math.max(0, d.hitFlash - delta);
   }
   stepProjectiles(map, delta);
+  stepZones(delta);
   tickBurning(delta);
   processExplosions(map);
   stepCorpses(map, delta);
@@ -238,6 +239,40 @@ function stepSpawners(map: GameMap, delta: number): void {
   }
 }
 
+/** Ground-fire zones (lob landings): everything of the opposing side inside
+ *  the radius takes a damage tick on the interval, no knockback or hit-stop
+ *  — area denial you WALK OUT OF, not an impact. Zones expire on `life`. */
+function stepZones(delta: number): void {
+  for (const z of [...zones]) {
+    const s = z.zone;
+    s.life -= delta;
+    s.next -= delta;
+    if (s.next <= 0) {
+      s.next += s.interval;
+      if (s.faction === 'player') {
+        for (const m of [...mobs]) {
+          if (Math.hypot(m.pos.x - z.pos.x, m.pos.z - z.pos.z) <= s.radius + (m.radius ?? DEFAULT_RADIUS)) {
+            damageMob(m, s.damage, { faction: 'player', dot: true });
+          }
+        }
+      } else {
+        const player = players.first;
+        if (
+          player?.health &&
+          player.health.current > 0 &&
+          Math.hypot(player.pos.x - z.pos.x, player.pos.z - z.pos.z) <= s.radius + (player.radius ?? DEFAULT_RADIUS)
+        ) {
+          player.health.current -= s.damage;
+          player.hitFlash = 0.15;
+          emitGameEvent({ type: 'damage', x: player.pos.x, z: player.pos.z, amount: s.damage, target: 'player' });
+          if (player.health.current <= 0) emitGameEvent({ type: 'playerDied' });
+        }
+      }
+    }
+    if (s.life <= 0) world.remove(z);
+  }
+}
+
 /** Scald ticks: burn damage on a timer until the countdown runs out. DoT
  *  skips hit-stop and knockback — it's a state, not an impact. */
 function tickBurning(delta: number): void {
@@ -248,9 +283,10 @@ function tickBurning(delta: number): void {
     if (b.next <= 0) {
       b.next += b.interval;
       if (e.player) {
-        emitGameEvent({ type: 'damage', x: e.pos.x, z: e.pos.z, amount: b.damage, target: 'player' });
         if (e.health.current > 0) {
           e.health.current -= b.damage;
+          // Emit after the subtraction — the HP readout reads the live value.
+          emitGameEvent({ type: 'damage', x: e.pos.x, z: e.pos.z, amount: b.damage, target: 'player' });
           if (e.health.current <= 0) emitGameEvent({ type: 'playerDied' });
         }
       } else {
@@ -435,8 +471,14 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     if (weapon.kind === 'melee') {
       if (Math.abs(dist - weapon.reach) > MELEE_BAND + (player.radius ?? DEFAULT_RADIUS)) continue;
     } else {
-      if (dist > weapon.reach || !hasLineOfSight(map, mob.pos, player.pos)) continue;
+      if (dist > weapon.reach) continue;
+      // Lobbers mortar over whatever's between them and a player they've
+      // already noticed; bolts still need the firing line.
+      if (weapon.delivery !== 'lob' && !hasLineOfSight(map, mob.pos, player.pos)) continue;
     }
+    // Lob shells land where the target WAS at the windup — the lead time is
+    // the dodge window.
+    mob.aimDist = dist;
     brain.attackIn = 1 / weapon.rate;
     startAttack(mob, weapon);
   }
@@ -644,12 +686,17 @@ function fireProjectiles(
   from: { x: number; z: number },
   dirX: number,
   dirZ: number,
+  aimDist?: number,
 ): void {
   const yaw = Math.atan2(dirX, dirZ);
   const ricochet = mech(weapon.mechanisms, 'ricochet');
   const split = mech(weapon.mechanisms, 'split');
+  // A lob lands where the shooter is AIMING (cursor / hunted target),
+  // clamped to reach — not at max range. Measured from the muzzle.
+  const lob = weapon.delivery === 'lob';
+  const range = lob ? Math.max(0.9, Math.min(weapon.reach, aimDist ?? weapon.reach) - 0.6) : weapon.reach;
   for (let i = 0; i < weapon.count; i++) {
-    const a = yaw + (i - (weapon.count - 1) / 2) * MULTISHOT_SPREAD;
+    const a = yaw + (i - (weapon.count - 1) / 2) * (weapon.spread ?? MULTISHOT_SPREAD);
     const nx = Math.sin(a);
     const nz = Math.cos(a);
     world.add({
@@ -659,12 +706,14 @@ function fireProjectiles(
         knockback: weapon.knockback,
         stagger: weapon.stagger,
         speed: weapon.speed,
-        maxRange: weapon.reach,
+        maxRange: range,
         traveled: 0,
         pierce: faction === 'player' ? weapon.pierce : false, // vs a single player, pierce is meaningless
         bounces: ricochet ? 1 + Math.floor(ricochet.power / 2) : 0,
         splits: split ? 3 + Math.floor(split.power / 2) : 0,
         blast: weapon.blastRadius,
+        lob,
+        linger: weapon.linger,
         mechanisms: weapon.mechanisms,
         struck: [],
       },
@@ -698,6 +747,8 @@ function spawnFragments(p: Entity & { projectile: NonNullable<Entity['projectile
         bounces: 0,
         splits: 0,
         blast: 0,
+        lob: false,
+        linger: 0,
         mechanisms: [],
         struck: [...p.projectile.struck],
       },
@@ -778,7 +829,7 @@ function advanceAttack(attacker: Entity, delta: number): void {
     if (!swing.fired && swing.t >= swing.windup) {
       swing.fired = true;
       const aim = attacker.aim ?? { x: 0, z: 1 };
-      fireProjectiles(attacker.player ? 'player' : 'mob', weapon, attacker.pos!, aim.x, aim.z);
+      fireProjectiles(attacker.player ? 'player' : 'mob', weapon, attacker.pos!, aim.x, aim.z, attacker.aimDist);
     }
     if (swing.t >= total) attacker.attack = undefined;
     return;
@@ -1043,9 +1094,29 @@ function stepProjectile(
 
   if (p.projectile.traveled > p.projectile.maxRange) {
     if (p.projectile.blast > 0) detonate();
+    if (p.projectile.linger > 0) {
+      // The landing keeps burning: a ground-fire zone the opposing side
+      // has to move out of (or never enter).
+      world.add({
+        zone: {
+          faction: p.projectile.faction,
+          radius: Math.max(0.8, p.projectile.blast),
+          damage: Math.max(1, Math.round(p.projectile.damage * 0.5)),
+          interval: 0.45,
+          next: 0.15,
+          life: p.projectile.linger,
+        },
+        pos: { x: p.pos.x, z: p.pos.z },
+      });
+    }
     if (p.projectile.splits > 0) spawnFragments(p);
     return true;
   }
+
+  // Lobbed shells are airborne: nothing on the ground — walls, crates,
+  // bodies — touches them. They resolve only where they land (above).
+  if (p.projectile.lob) return false;
+
   const wallCell = overlappingWallCell(map, p.pos.x, p.pos.z, r);
   if (wallCell) {
     // A crate or barrel takes the hit as damage before the shot resolves —

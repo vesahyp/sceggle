@@ -29,6 +29,7 @@ import { Mob } from './scene/Mob';
 import { Destructible } from './scene/Destructible';
 import { Loot } from './scene/Loot';
 import { Projectiles } from './scene/Projectiles';
+import { GroundZones } from './scene/GroundZones';
 import { DamageNumbers } from './scene/DamageNumbers';
 import { Footsteps } from './scene/Footsteps';
 import { Corpses } from './scene/Corpses';
@@ -182,11 +183,17 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
     return from[ROT.RNG.getUniformInt(0, from.length - 1)];
   };
 
-  /** Pre-roll what a mob leaves behind: maybe its weapon, maybe a part.
-   *  Only gun-carriers ever drop weapons — the player is ranged-only, so a
-   *  dropped sword would be inventory litter. */
+  /** Pre-roll what a mob leaves behind: maybe a gun, maybe a part. The
+   *  player is ranged-only, so swords never drop — but the horde is mostly
+   *  sword-carriers, and a loot game where most kills can't pay out guns is
+   *  a loot game with no guns. So melee carriers SCAVENGE: a fraction of
+   *  them hold a looted gun (rolled fresh here, spawn-time RNG), and drop
+   *  that. Gun-carriers still drop the gun they shot you with. */
   const rollDrops = (weapon: WeaponDef | undefined, weaponChance: number, partChance: number) => {
-    if (weapon && weapon.kind === 'ranged' && ROT.RNG.getUniform() < weaponChance) return { weapon };
+    if (weapon && ROT.RNG.getUniform() < weaponChance) {
+      if (weapon.kind === 'ranged') return { weapon };
+      return { weapon: generateWeapon('ranged', 1, 4 + ROT.RNG.getUniformInt(0, 2 + 2 * area)) };
+    }
     if (ROT.RNG.getUniform() < partChance) return { part: generateMechanism(partTier) };
     return undefined;
   };
@@ -267,14 +274,15 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
     },
   });
 
-  /** One-hit swarm chaff — shared by swarm packs and spawner reinforcements.
-   *  Clearly slower than the player (5): a crowd you mow, not a tide that
-   *  forces permanent backpedaling. Rushers are the fast exception. */
+  /** Swarm chaff — shared by swarm packs and spawner reinforcements. A
+   *  couple of hits each (scaling with depth): a crowd you mow, not a tide
+   *  that forces permanent backpedaling — but no longer a field of
+   *  one-tap piñatas. Rushers are the fast exception. */
   const chaff = (cell: { x: number; z: number }, postRadius = 0): Entity => {
     const weapon = generateWeapon('melee', 1, 3 + ROT.RNG.getUniformInt(0, 2));
     return makeMob(cell, {
       level: 1,
-      hp: 1 + ROT.RNG.getUniformInt(0, 1),
+      hp: 2 + ROT.RNG.getUniformInt(0, 1) + (area - 1),
       speed: +(2.4 + ROT.RNG.getUniform() * 0.4).toFixed(2),
       tint: '#5fd35f',
       weapon,
@@ -315,7 +323,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
           list.push(
             makeMob(near(center), {
               level: 1,
-              hp: 2,
+              hp: 4 + (area - 1),
               speed: +(4.1 + ROT.RNG.getUniform() * 0.3).toFixed(2),
               tint: '#3fbf8f',
               weapon,
@@ -337,7 +345,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
           list.push(
             makeMob(near(center), {
               level: 1,
-              hp: 2,
+              hp: 4 + area,
               speed: 2.4,
               tint: '#7fb2e8',
               weapon,
@@ -361,7 +369,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
           list.push(
             makeMob(near(center), {
               level: 1,
-              hp: 1,
+              hp: 2,
               speed: 4.2,
               tint: '#ff8c42',
               volatile: { radius: 1.7, damage: 2 + area, fuse: 0.55, lit: false },
@@ -386,7 +394,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
         list.push(
           makeMob(center, {
             level: 2,
-            hp: 10 + 3 * area,
+            hp: 14 + 4 * area,
             speed: 0,
             tint: '#b07fe8',
             spawner: { interval: 2.2, next: 1.0, pending },
@@ -410,7 +418,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>): Entit
         list.push(
           makeMob(center, {
             level,
-            hp: 8 + 3 * area,
+            hp: 12 + 5 * area,
             speed: 3.2,
             tint: level >= 3 ? '#d35f5f' : '#d3a75f',
             weapon,
@@ -545,8 +553,10 @@ export default function App() {
   // seeded → deterministic) until damage and cadence clear a floor. Drops
   // keep their spiky rolls — the slot machine starts with the first pickup.
   const starterWeapon = useConstant(() => {
+    // Always a straight-shooter: learning the game behind a mortar arc is
+    // rough. Lobbers enter through drops.
     let w = generateWeapon('ranged', 1, weaponBudget(1) + 4);
-    for (let i = 0; i < 20 && (w.damage < 3 || w.rate < 1); i++) {
+    for (let i = 0; i < 20 && (w.damage < 3 || w.rate < 1 || w.delivery !== 'bolt'); i++) {
       w = generateWeapon('ranged', 1, weaponBudget(1) + 4);
     }
     return w;
@@ -678,6 +688,7 @@ export default function App() {
         ))}
         <Loot />
         <Projectiles />
+        <GroundZones />
         <Footsteps entity={playerEntity} />
         <Corpses />
         <Effects />
@@ -753,6 +764,10 @@ export default function App() {
         <div className="stat">
           Grass hides you from eyes (you fade), not ears — firing gives you away.
           Crates break under fire; red barrels detonate and chain, hurting everyone.
+        </div>
+        <div className="stat">
+          Lob guns arc over walls and land at your cursor, torching the ground.
+          Green fire is theirs — walk out of it.
         </div>
       </div>
     </>

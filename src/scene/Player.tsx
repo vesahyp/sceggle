@@ -170,13 +170,19 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     //     projected onto the body-height ground plane. ---
     if (touch.aim.active) {
       entity.aim = assistAim(pos, touch.aim.x, touch.aim.z, weapon.reach);
+      // No cursor on touch — lobs fly to full reach.
+      entity.aimDist = weapon.reach;
     } else if (!touch.used) {
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
         const ax = hitPoint.x - pos.x;
         const az = hitPoint.z - pos.z;
         const al = Math.hypot(ax, az);
-        if (al > 0.15) entity.aim = { x: ax / al, z: az / al };
+        if (al > 0.15) {
+          entity.aim = { x: ax / al, z: az / al };
+          // Lob shells land AT the cursor (clamped to reach in the sim).
+          entity.aimDist = al;
+        }
       }
     }
 
@@ -212,17 +218,29 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         ? ms.t <= ms.windup ? 0.5 + 0.5 * (ms.t / ms.windup) : 0.15
         : cooldown.current > 0 ? 0.15 : 0.5;
       if (lineMat.current) lineMat.current.opacity = lineOpacity;
-      // March along the aim like the projectile will, stopping at the first
-      // wall — the line length IS how far this shot can actually fly.
       let range = weapon.reach;
-      for (let d = 0; d < weapon.reach; d += 0.25) {
-        if (circleOverlapsWall(map, pos.x + aim.x * (MUZZLE + d), pos.z + aim.z * (MUZZLE + d), weapon.hitRadius)) {
-          range = d;
-          break;
+      if (weapon.delivery === 'lob') {
+        // A lob flies over walls and lands at the cursor: the ring marks the
+        // landing point, nothing clips the line.
+        range = Math.max(0.3, Math.min(weapon.reach, entity.aimDist ?? weapon.reach) - MUZZLE);
+      } else {
+        // March along the aim like the projectile will, stopping at the
+        // first wall — the line length IS how far this shot can actually fly.
+        for (let d = 0; d < weapon.reach; d += 0.25) {
+          if (circleOverlapsWall(map, pos.x + aim.x * (MUZZLE + d), pos.z + aim.z * (MUZZLE + d), weapon.hitRadius)) {
+            range = d;
+            break;
+          }
         }
       }
       if (line.current) line.current.scale.z = range;
-      if (endRing.current) endRing.current.position.z = MUZZLE + range;
+      if (endRing.current) {
+        endRing.current.position.z = MUZZLE + range;
+        // Landing ring swells to the blast radius so a lobber reads its
+        // splash before committing.
+        const ringScale = weapon.delivery === 'lob' && weapon.blastRadius > 0 ? weapon.blastRadius / 0.17 : 1;
+        endRing.current.scale.setScalar(ringScale);
+      }
     }
 
     // --- Status readout (billboarded above the head) ---

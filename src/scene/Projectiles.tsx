@@ -25,7 +25,14 @@ export function Projectiles() {
     let i = 0;
     for (const p of projectiles) {
       if (i >= MAX) break;
-      dummy.position.set(p.pos.x, BODY_Y, p.pos.z);
+      // Lobbed shells arc: a render-only parabola over the flight fraction
+      // (the sim stays 2D — this is why they clear walls visually too).
+      let y = BODY_Y;
+      if (p.projectile.lob && p.projectile.maxRange > 0) {
+        const t = Math.min(1, p.projectile.traveled / p.projectile.maxRange);
+        y += Math.min(3.2, p.projectile.maxRange * 0.35) * 4 * t * (1 - t);
+      }
+      dummy.position.set(p.pos.x, y, p.pos.z);
       // The sphere geometry is unit-radius 0.12 — scale to the hit radius.
       dummy.scale.setScalar((p.radius ?? 0.12) / 0.12);
       dummy.updateMatrix();
