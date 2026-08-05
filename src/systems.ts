@@ -34,11 +34,6 @@ const DEFAULT_RADIUS = 0.3;
 export const MELEE_BAND = 0.55;
 /** Ranged aim time before the shot releases (the interruptible window). */
 const RANGED_AIM = 0.15;
-/** Landed hits freeze the whole sim for a beat (a touch longer on a kill) —
- *  classic hit-stop, so impacts punctuate instead of blending together. */
-const HIT_STOP = 0.05;
-const HIT_STOP_KILL = 0.09;
-let hitStop = 0;
 /** Angle between fanned projectiles of a multishot weapon. */
 const MULTISHOT_SPREAD = 0.12;
 
@@ -101,11 +96,6 @@ export function meleeHitBand(reach: number): { inner: number; outer: number } {
  * positions) with the frame delta.
  */
 export function stepSimulation(map: GameMap, delta: number): void {
-  // Hit-stop: the whole world holds its breath for a beat after an impact.
-  if (hitStop > 0) {
-    hitStop -= delta;
-    return;
-  }
   updateEnemyAI(map, delta);
   stepVolatiles(delta);
   stepSpawners(map, delta);
@@ -353,7 +343,6 @@ function processExplosions(map: GameMap): void {
     const ex = explosionQueue.shift()!;
     emitGameEvent({ type: 'explosion', x: ex.x, z: ex.z, radius: ex.radius });
     viewFx.shake = Math.min(0.5, viewFx.shake + 0.18);
-    hitStop = Math.max(hitStop, HIT_STOP);
 
     // Blasts break crates and barrels no matter whose they are — a barrel's
     // own death queues the next explosion, so chains resolve this same pass
@@ -504,7 +493,8 @@ function damagePlayer(
   player.vel!.z = dirZ * kb;
   player.stun = Math.min(PLAYER_STUN_CAP, Math.max(player.stun ?? 0, stagger));
   cancelWindup(player);
-  hitStop = Math.max(hitStop, HIT_STOP);
+  // Getting hit trembles the screen — pain you feel without the sim pausing.
+  viewFx.shake = Math.min(0.5, viewFx.shake + 0.1);
 
   const scald = mech(ctx?.mechanisms, 'scald');
   if (scald) igniteScald(player, scald);
@@ -592,8 +582,7 @@ function damageMob(mob: Entity, amount: number, ctx: HitCtx): void {
       }
     }
   }
-  mob.hitFlash = 0.2; // the view flashes the body white — "hit registered"
-  if (!ctx.dot) hitStop = Math.max(hitStop, HIT_STOP);
+  mob.hitFlash = 0.2; // the view flashes and squashes the body — "hit registered"
   emitGameEvent({ type: 'damage', x: mob.pos!.x, z: mob.pos!.z, amount, target: 'mob' });
 
   const scald = mech(ctx.mechanisms, 'scald');
@@ -610,7 +599,6 @@ function damageMob(mob: Entity, amount: number, ctx: HitCtx): void {
 
   if (mob.health.current > 0) return;
   if (!alive) return; // already dying this tick (e.g. hit twice by one blast)
-  hitStop = Math.max(hitStop, HIT_STOP_KILL);
   viewFx.shake = Math.min(0.5, viewFx.shake + 0.05);
 
   // The body flies with the shove the killing blow just applied.

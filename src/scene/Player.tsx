@@ -86,6 +86,7 @@ END_GEOM.rotateX(-Math.PI / 2);
  */
 export function Player({ entity, weapon, map }: { entity: Entity; weapon: WeaponDef; map: GameMap }) {
   const group = useRef<Group>(null);
+  const body = useRef<Mesh>(null);
   const bodyMat = useRef<MeshStandardMaterial>(null);
   const statusPivot = useRef<Group>(null);
   const status = useRef<Group>(null);
@@ -247,8 +248,20 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     statusPivot.current?.quaternion.copy(camera.quaternion);
     if (status.current) status.current.visible = (entity.stun ?? 0) > 0;
 
-    // --- Mirror sim position; camera follows (plus kill/blast trembles) ---
-    if (bodyMat.current) bodyMat.current.emissive.set((entity.hitFlash ?? 0) > 0 ? '#ffffff' : '#000000');
+    // --- Body life: gait bob + travel lean + hit squash-flash (all
+    //     render-only, on the body mesh so indicators stay planted) ---
+    const hitK = Math.min(1, (entity.hitFlash ?? 0) / 0.2);
+    if (body.current) {
+      const move = Math.min(1, Math.hypot(vel.x, vel.z) / SPEED);
+      body.current.position.y = Math.abs(Math.sin(clock.elapsedTime * 10)) * 0.1 * move;
+      body.current.rotation.x = (vel.z / SPEED) * 0.14;
+      body.current.rotation.z = -(vel.x / SPEED) * 0.14;
+      body.current.scale.set(1 + 0.24 * hitK, 1 - 0.28 * hitK, 1 + 0.24 * hitK);
+    }
+    if (bodyMat.current) {
+      bodyMat.current.emissive.set(hitK > 0 ? '#ffe8c4' : '#000000');
+      bodyMat.current.emissiveIntensity = hitK > 0 ? 1.1 * hitK : 1;
+    }
     // Concealment tell: faded = in grass and unseen by mob eyes (the same
     // condition the perception gate tests).
     const hidden = map.isGrass(worldToCell(pos.x), worldToCell(pos.z)) && (entity.reveal ?? 0) <= 0;
@@ -270,7 +283,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
 
   return (
     <group ref={group}>
-      <mesh castShadow>
+      <mesh ref={body} castShadow>
         <capsuleGeometry args={[0.35, 0.6, 8, 16]} />
         <meshStandardMaterial ref={bodyMat} color="#4ea1ff" transparent />
       </mesh>

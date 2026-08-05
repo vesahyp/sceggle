@@ -32,6 +32,7 @@ HEARING_RING_GEOM.rotateX(-Math.PI / 2);
  */
 export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
   const group = useRef<Group>(null);
+  const body = useRef<Mesh>(null);
   const mat = useRef<MeshStandardMaterial>(null);
   const weaponPivot = useRef<Group>(null);
   const strikePivot = useRef<Group>(null);
@@ -61,18 +62,34 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
 
   useFrame(({ camera, clock }) => {
     if (entity.pos) group.current?.position.set(entity.pos.x, BODY_Y, entity.pos.z);
+    // Fresh-hit fraction: 1 right as the hit lands, easing to 0 — flash and
+    // squash both ride it, so impact feedback decays instead of blinking.
+    const hitK = Math.min(1, (entity.hitFlash ?? 0) / 0.2);
+    if (body.current) {
+      // Procedural gait: a little hop-bob while moving (per-mob phase so a
+      // horde doesn't march in lockstep), a lean into the direction of
+      // travel, and a squash-pop when a hit lands. Body-mesh only — the
+      // sense cones and bars stay planted.
+      const vx = entity.vel?.x ?? 0;
+      const vz = entity.vel?.z ?? 0;
+      const move = Math.min(1, Math.hypot(vx, vz) / 3);
+      const phase = (entity.id ?? 0) * 1.7;
+      body.current.position.y = Math.abs(Math.sin(clock.elapsedTime * 9 + phase)) * 0.1 * move;
+      body.current.rotation.x = (vz / 5) * 0.16;
+      body.current.rotation.z = -(vx / 5) * 0.16;
+      body.current.scale.set(1 + 0.28 * hitK, 1 - 0.32 * hitK, 1 + 0.28 * hitK);
+    }
     if (mat.current) {
-      // Priority: fuse strobe > just-hit white flash > windup telegraph >
+      // Priority: fuse strobe > just-hit flash > windup telegraph >
       // scald flicker > alerted glow.
-      const flash = (entity.hitFlash ?? 0) > 0;
       const winding = entity.attack && entity.attack.t <= entity.attack.windup;
       const strobing = entity.volatile?.lit && Math.sin(clock.elapsedTime * 45) > 0;
       const scalded = entity.burning && Math.sin(clock.elapsedTime * 18) > -0.3;
       mat.current.emissive.set(
         strobing
           ? '#ffffff'
-          : flash
-            ? '#ffffff'
+          : hitK > 0
+            ? '#ffe8c4'
             : winding
               ? '#a03030'
               : scalded
@@ -81,7 +98,7 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
                   ? '#5a1414'
                   : '#000000',
       );
-      mat.current.emissiveIntensity = flash || strobing ? 0.9 : 1;
+      mat.current.emissiveIntensity = strobing ? 0.9 : hitK > 0 ? 1.1 * hitK : 1;
       // Grass is real for mobs too — the same fade tell the player gets
       // (render-only: mobs get no concealment from the player's perception,
       // because the player has none; the Vision fog does that job).
@@ -109,7 +126,7 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
 
   return (
     <group ref={group} scale={scale}>
-      <mesh castShadow>
+      <mesh ref={body} castShadow>
         <capsuleGeometry args={[0.32, 0.5, 8, 16]} />
         <meshStandardMaterial ref={mat} color={tint} transparent />
       </mesh>
