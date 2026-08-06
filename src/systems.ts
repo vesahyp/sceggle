@@ -66,6 +66,20 @@ const ORBIT_WEIGHT = 0.75;
 const STANDOFF_INNER = 0.72;
 /** Multiple of `attackRange` at which orbiting starts to fade in. */
 const ORBIT_FADE = 1.7;
+/** How close counts as reaching a remembered position. */
+const SEARCH_ARRIVE = 0.6;
+/** Fraction of full speed a searching mob advances at — visibly not a charge. */
+const SEARCH_SPEED = 0.7;
+/** Radians/second the cone sweeps while looking around at the spot. */
+const SEARCH_SWEEP = 1.8;
+/** Seconds spent looking around before giving up, refreshed on every sighting. */
+const SEARCH_LOOK = 2.5;
+/** Multiple of `sight` a mob can keep tracking a target it has already found.
+ *  Noticing someone takes a closer look than not losing them again, and
+ *  without the gap a target hovering at the sight edge flickers in and out of
+ *  the hunt. Cover still breaks tracking at any range — that's the point of
+ *  the mechanic; raw distance shouldn't be the easy out. */
+const SIGHT_KEEP = 1.8;
 
 /** View-feedback channel the render layer reads and decays: kills and
  *  detonations pump `shake`, the camera trembles by it. Not sim state. */
@@ -237,7 +251,8 @@ function separateMobs(): void {
 }
 
 /**
- * Exploder behavior: an alerted volatile mob that gets close lights its fuse,
+ * Exploder behavior: a volatile mob that can see or hear the player and gets
+ * close lights its fuse,
  * plants itself, and detonates — hurting both sides, so a pack of exploders
  * chains. The view reads `lit` to strobe the body as the tell.
  */
@@ -249,7 +264,7 @@ function stepVolatiles(delta: number): void {
     if (!v.lit) {
       if (
         player &&
-        mob.brain?.alerted &&
+        mob.brain?.perceives &&
         Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) < 1.15
       ) {
         v.lit = true;
@@ -275,7 +290,8 @@ function stepVolatiles(delta: number): void {
 }
 
 /**
- * Spawner behavior: while alerted, release one pre-rolled spawnee every
+ * Spawner behavior: while it still remembers the player, release one
+ * pre-rolled spawnee every
  * `interval` seconds at a clear spot beside the spawner. The entities were
  * generated with the area; the sim just places them and hands them to React
  * to mount (mobsSpawned) — the same ownership split as deaths.
@@ -283,7 +299,7 @@ function stepVolatiles(delta: number): void {
 function stepSpawners(map: GameMap, delta: number): void {
   for (const mob of mobs) {
     const s = mob.spawner;
-    if (!s || !mob.brain?.alerted) continue;
+    if (!s || (mob.brain?.alert ?? 0) <= 0) continue;
     s.next -= delta;
     if (s.next > 0) continue;
     s.next = s.interval;
@@ -300,7 +316,9 @@ function stepSpawners(map: GameMap, delta: number): void {
         break;
       }
     }
-    child.brain!.alerted = true; // born into the fight
+    // Born into the fight: it inherits the spawner's memory of the player
+    // rather than having to find them itself.
+    rememberPlayer(child.brain!, mob.brain!.lastSeen?.x ?? mob.pos.x, mob.brain!.lastSeen?.z ?? mob.pos.z);
     emitGameEvent({ type: 'mobsSpawned', mobs: [child] });
   }
 }
@@ -515,7 +533,7 @@ function stepCorpses(map: GameMap, delta: number): void {
 }
 
 /**
- * Mob offense: an alerted, un-staggered mob attacks the player on its
+ * Mob offense: a mob that perceives the player and isn't staggered attacks on its
  * weapon's rate — with EXACTLY the player's mechanics. Both kinds start the
  * same windup-telegraphed attack (melee sweeps the strike band, ranged
  * releases its shot when the draw completes). The only mob-specific part is
@@ -531,7 +549,7 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     const weapon = mob.weapon;
     if (!brain || !weapon) continue;
     brain.attackIn -= delta;
-    if (!brain.alerted || brain.stagger > 0 || brain.attackIn > 0) continue;
+    if (!brain.perceives || brain.stagger > 0 || brain.attackIn > 0) continue;
 
     const dist = Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) || 1;
 
@@ -658,11 +676,16 @@ function cancelWindup(entity: Entity): void {
  * charge) fire from the hit context.
  */
 function damageMob(mob: Entity, amount: number, ctx: HitCtx): void {
-  if (mob.brain && !mob.brain.alerted) {
-    mob.brain.alerted = true;
+  // Getting hit points the mob (and its packmates) at where the player is
+  // standing — they go and look, but it's a memory like any other, so it
+  // fades if nobody re-acquires. Skipped when already at full alert, which
+  // is the common case mid-fight.
+  const attacker = players.first;
+  if (mob.brain && attacker && mob.brain.alert < 1) {
+    rememberPlayer(mob.brain, attacker.pos.x, attacker.pos.z);
     for (const other of mobs) {
       if (other.brain && Math.hypot(other.pos.x - mob.pos!.x, other.pos.z - mob.pos!.z) < 5) {
-        other.brain.alerted = true;
+        rememberPlayer(other.brain, attacker.pos.x, attacker.pos.z);
       }
     }
   }
@@ -1006,28 +1029,39 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     // the mob is inside grass itself, or the player just fired (`reveal`,
     // which also lets the shot be seen through the bush it came from).
     // Ears don't care. Alerted mobs don't either: the latch is permanent.
-    if (!brain.alerted) {
-      const aim = mob.aim ?? { x: 0, z: 1 };
-      const facing =
-        dist > 1e-4 && (aim.x * (pp.x - mob.pos.x) + aim.z * (pp.z - mob.pos.z)) / dist >= Math.cos(brain.fov);
-      const revealed = (player.reveal ?? 0) > 0;
-      const playerHidden = !revealed && map.isGrass(pCellX, pCellZ);
-      const mobInGrass = map.isGrass(worldToCell(mob.pos.x), worldToCell(mob.pos.z));
-      brain.alerted =
-        dist <= brain.hearing ||
-        (dist <= brain.sight &&
-          facing &&
-          !playerHidden &&
-          hasLineOfSight(map, mob.pos, pp, !mobInGrass && !revealed));
-      if (!brain.alerted) {
-        wander(map, mob, delta);
-        continue;
-      }
+    const aim = mob.aim ?? { x: 0, z: 1 };
+    const facing =
+      dist > 1e-4 && (aim.x * (pp.x - mob.pos.x) + aim.z * (pp.z - mob.pos.z)) / dist >= Math.cos(brain.fov);
+    const revealed = (player.reveal ?? 0) > 0;
+    const playerHidden = !revealed && map.isGrass(pCellX, pCellZ);
+    const mobInGrass = map.isGrass(worldToCell(mob.pos.x), worldToCell(mob.pos.z));
+    // Already hunting? Then the eyes reach further — see SIGHT_KEEP.
+    const seeRange = brain.alert > 0 ? brain.sight * SIGHT_KEEP : brain.sight;
+    brain.perceives =
+      dist <= brain.hearing ||
+      (dist <= seeRange &&
+        facing &&
+        !playerHidden &&
+        hasLineOfSight(map, mob.pos, pp, !mobInGrass && !revealed));
+
+    // Memory: perceiving refills it and pins where the player is; failing to
+    // perceive drains it. Empty means forgotten — back to wandering.
+    if (brain.perceives) {
+      rememberPlayer(brain, pp.x, pp.z);
+    } else if (brain.alert > 0) {
+      brain.alert = Math.max(0, brain.alert - delta / brain.memory);
+      if (brain.alert === 0) brain.lastSeen = undefined;
     }
 
-    // Face the player while alerted — swings sweep around this aim, exactly
+    if (!brain.perceives) {
+      if (brain.lastSeen) searchLastSeen(map, mob, grid, delta);
+      else wander(map, mob, delta);
+      continue;
+    }
+
+    // Face the player while hunting — swings sweep around this aim, exactly
     // like the player's sweep around theirs.
-    if (brain.alerted && mob.aim && dist > 1e-4) {
+    if (mob.aim && dist > 1e-4) {
       mob.aim.x = (pp.x - mob.pos.x) / dist;
       mob.aim.z = (pp.z - mob.pos.z) / dist;
     }
@@ -1095,6 +1129,83 @@ function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): void {
         addDanger(steer, dx, dz, CROWD_DANGER * (1 - d / reach));
       }
     }
+  }
+}
+
+/**
+ * Pin the player's position in a mob's memory and refill its alertness —
+ * what perceiving the player does, and what being hit does too (a shot tells
+ * you where the shooter is standing well enough to go look).
+ */
+function rememberPlayer(brain: NonNullable<Entity['brain']>, x: number, z: number): void {
+  brain.alert = 1;
+  brain.searchLook = SEARCH_LOOK;
+  if (brain.lastSeen) {
+    brain.lastSeen.x = x;
+    brain.lastSeen.z = z;
+  } else {
+    brain.lastSeen = { x, z };
+  }
+}
+
+/**
+ * Search: walk to where the player was last perceived, then stand there and
+ * sweep the cone around before giving up. This is the half of perception
+ * that makes cover worth using — the pack commits to a stale position, and
+ * the time it spends checking it is time you spent moving somewhere else.
+ *
+ * The walk steers straight at the remembered spot rather than following a
+ * field. It can afford to: the mob recorded that spot while it had clear
+ * line of sight to it, and a clear line is by definition walkable. Terrain
+ * danger covers the rest (a shove mid-chase, or a spot heard through a
+ * wall), and a mob that can't get there simply runs out of `alert` and
+ * forgets — which is the right outcome anyway.
+ */
+function searchLastSeen(
+  map: GameMap,
+  mob: Entity & { pos: { x: number; z: number }; vel: { x: number; z: number } },
+  grid: MobGrid,
+  delta: number,
+): void {
+  const brain = mob.brain!;
+  const target = brain.lastSeen!;
+  const dx = target.x - mob.pos.x;
+  const dz = target.z - mob.pos.z;
+
+  if (Math.hypot(dx, dz) > SEARCH_ARRIVE) {
+    resetSteering(steer);
+    addInterest(steer, dx, dz, 1);
+    addCrowdDanger(steer, grid, mob);
+    addWallDanger(steer, map, mob.pos.x, mob.pos.z, mob.radius ?? DEFAULT_RADIUS, WALL_LOOKAHEAD, WALL_DANGER);
+    const dir = resolveSteering(steer);
+    // Advancing on a guess, not charging a target — the slower approach is
+    // also the tell that it has lost you.
+    const speed = (mob.moveSpeed ?? MOB_SPEED) * SEARCH_SPEED;
+    mob.vel.x = dir.x * speed;
+    mob.vel.z = dir.z * speed;
+    if (mob.aim && (dir.x !== 0 || dir.z !== 0)) {
+      mob.aim.x = dir.x;
+      mob.aim.z = dir.z;
+    }
+    return;
+  }
+
+  // Arrived at nothing. Stand and sweep — which is also what gives the
+  // player a readable window to slip past a cone that's pointed elsewhere.
+  mob.vel.x = 0;
+  mob.vel.z = 0;
+  brain.searchLook -= delta;
+  if (mob.aim) {
+    const a = SEARCH_SWEEP * delta * brain.strafe;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const nx = mob.aim.x * cos - mob.aim.z * sin;
+    mob.aim.z = mob.aim.x * sin + mob.aim.z * cos;
+    mob.aim.x = nx;
+  }
+  if (brain.searchLook <= 0) {
+    brain.alert = 0;
+    brain.lastSeen = undefined;
   }
 }
 
