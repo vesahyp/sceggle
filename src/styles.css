@@ -22,65 +22,36 @@ body,
   user-select: none;
 }
 
-.hud {
+/* The whole in-game HUD: one status line, top-left. Everything wordy lives
+   in the pause overlay's Help tab. */
+.hud-strip {
   position: fixed;
-  top: 16px;
-  left: 16px;
-  padding: 14px 18px;
-  border-radius: 10px;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  padding: 7px 13px;
+  border-radius: 999px;
   background: rgba(20, 24, 34, 0.72);
   backdrop-filter: blur(6px);
-  color: #e5e9f0;
+  color: #c3cad9;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
   user-select: none;
   pointer-events: none;
-  max-width: 320px;
+  white-space: nowrap;
 }
 
-.hud h1 {
-  font-size: 18px;
-  letter-spacing: 0.5px;
-}
-
-.hud .sub {
-  font-size: 12px;
-  color: #8b93a7;
-  margin-bottom: 10px;
-}
-
-.hud ul {
-  list-style: none;
-  font-size: 13px;
-  line-height: 1.9;
-  color: #c3cad9;
-  margin-bottom: 10px;
-}
-
-.hud .stat {
-  font-size: 13px;
-  color: #c3cad9;
-  line-height: 1.7;
-}
-
-.hud .stat span {
-  color: #8b93a7;
-}
-
-/* The pack: interactive DOM panel on the right (unlike the hud, it takes
-   pointer events — that's its whole job). */
-.inventory {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  width: 272px;
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: rgba(20, 24, 34, 0.82);
-  backdrop-filter: blur(6px);
+.hud-strip b {
   color: #e5e9f0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hud-strip .hp-low {
+  color: #ff6b6b;
+}
+
+/* The pack: lives inside the pause overlay's Pack tab (the overlay panel
+   provides the chrome; this is just the list). */
+.inventory {
+  color: #e5e9f0;
   user-select: none;
 }
 
@@ -222,61 +193,32 @@ body,
   background: rgba(255, 209, 102, 0.6);
 }
 
-/* Pack toggle + sheet (coarse pointers): the button sits in the hard-to-
-   reach top-right corner on purpose — it's a deliberate pause action, not
-   a combat control. The sheet pauses the sim while open. */
-.pack-toggle {
+/* Opens the pause overlay (on the Pack tab). Top-right corner on purpose —
+   it's a deliberate pause action, not a combat control (desktop has Esc/I). */
+.menu-open {
   all: unset;
   position: fixed;
   top: max(10px, env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
   z-index: 40;
-  padding: 10px 16px;
-  min-width: 48px;
-  min-height: 28px;
+  padding: 8px 14px;
+  min-width: 24px;
   text-align: center;
   border-radius: 10px;
-  background: rgba(20, 24, 34, 0.82);
+  background: rgba(20, 24, 34, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.14);
   color: #e5e9f0;
-  font-size: 14px;
+  font-size: 16px;
+  cursor: pointer;
 }
 
-.pack-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  background: rgba(11, 13, 18, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.menu-open:hover {
+  border-color: #5b657f;
 }
 
-.pack-sheet .inventory {
-  position: static;
-  width: min(340px, 86vw);
-  max-height: 82dvh;
-}
-
-/* Phone layout: the HUD shrinks to an info strip inside the safe area;
-   the how-to-play list and desktop hints go away. */
 @media (pointer: coarse) {
-  .hud {
-    top: max(10px, env(safe-area-inset-top));
-    left: max(10px, env(safe-area-inset-left));
-    padding: 8px 12px;
-    max-width: 250px;
-  }
-
-  .hud h1,
-  .hud .sub,
-  .hud ul {
-    display: none;
-  }
-
-  .hud .stat {
+  .hud-strip {
     font-size: 12px;
-    line-height: 1.5;
   }
 }
 
@@ -310,6 +252,298 @@ body,
   100% {
     opacity: 0;
   }
+}
+
+/* Menu overlay: the title screen, the pause screen, and character select
+   are the same layer. When a run exists it sits over the (paused) canvas —
+   the dim + blur reads as "held", not "gone". Above the touch sticks. */
+.menu {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 13, 18, 0.72);
+  backdrop-filter: blur(5px);
+  overflow-y: auto;
+  color: #e5e9f0;
+}
+
+.menu-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 32px;
+  margin: 16px;
+  border-radius: 14px;
+  background: rgba(20, 24, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+
+.menu-wide {
+  align-items: stretch;
+  max-width: 720px;
+  width: min(720px, calc(100vw - 24px));
+}
+
+.menu-title {
+  font-size: 40px;
+  letter-spacing: 2px;
+}
+
+.menu-title-sm {
+  font-size: 20px;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+.menu-sub {
+  font-size: 13px;
+  color: #8b93a7;
+  margin-bottom: 14px;
+}
+
+.menu-btn {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  text-align: center;
+  min-width: 200px;
+  padding: 12px 22px;
+  border-radius: 10px;
+  font-size: 15px;
+  background: rgba(42, 48, 64, 0.6);
+  border: 1px solid #3d4456;
+}
+
+.menu-btn:hover,
+.menu-btn:focus-visible {
+  border-color: #5b657f;
+  background: rgba(42, 48, 64, 0.95);
+}
+
+.menu-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-primary {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.12);
+  color: #ffd166;
+}
+
+.menu-primary:hover,
+.menu-primary:focus-visible {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.22);
+}
+
+.menu-slim {
+  min-width: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.menu-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+/* Character cards */
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.char-card {
+  border: 1px solid #3d4456;
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: rgba(42, 48, 64, 0.4);
+}
+
+.char-card:hover {
+  border-color: #5b657f;
+}
+
+.char-card.selected {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.char-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.char-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  align-self: center;
+  flex: none;
+}
+
+.char-role {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8b93a7;
+}
+
+.char-blurb {
+  font-size: 12px;
+  color: #c3cad9;
+  line-height: 1.5;
+  margin: 6px 0 8px;
+}
+
+.char-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 8px;
+  align-items: center;
+  font-size: 10px;
+  color: #8b93a7;
+}
+
+.char-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.char-bar div {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.char-numbers {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #e5e9f0;
+}
+
+.char-gun {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #8b93a7;
+}
+
+/* Seed row */
+.seed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.seed-row label {
+  font-size: 12px;
+  color: #8b93a7;
+}
+
+.seed-row input {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 15px;
+  letter-spacing: 2px;
+  background: rgba(15, 17, 23, 0.8);
+  border: 1px solid #3d4456;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.seed-row input:focus {
+  border-color: #ffd166;
+}
+
+.seed-hint {
+  font-size: 11px;
+  color: #8b93a7;
+  line-height: 1.5;
+  margin: 6px 0 10px;
+}
+
+/* Pause-overlay chrome: run info on the left, Pack/Help tabs on the right,
+   the tab content below, Continue/New Game at the bottom. */
+.menu-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.menu-run {
+  font-size: 12px;
+  color: #8b93a7;
+  margin-top: 4px;
+}
+
+.menu-run b {
+  color: #c3cad9;
+}
+
+.game-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.menu-tab-active {
+  border-color: #ffd166;
+  color: #ffd166;
+}
+
+.menu-content {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(15, 17, 23, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 200px;
+  max-height: 52dvh;
+  overflow-y: auto;
+}
+
+/* Help tab: the retired HUD wall of text, now read on purpose. */
+.help h3 {
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  color: #e5e9f0;
+  margin: 12px 0 6px;
+}
+
+.help h3:first-child {
+  margin-top: 0;
+}
+
+.help ul {
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #c3cad9;
+}
+
+.help li {
+  margin-bottom: 4px;
 }
 
 kbd {
