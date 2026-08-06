@@ -228,6 +228,16 @@ export interface Entity {
     attackRange: number;
     /** Seconds until this mob may attack again (1/weapon.rate cadence). */
     attackIn: number;
+    /** Holds one of the area's attack tokens — permission to start a swing.
+     *  Without it a mob circles and waits its turn, which is what keeps a
+     *  horde from committing every body at once (see systems.assignAttackTokens). */
+    token: boolean;
+    /** Seconds this mob may keep an unspent token before the turn passes on,
+     *  extended to cover a swing once one starts. */
+    tokenHold: number;
+    /** Seconds before this mob may take another turn — what makes the pack
+     *  visibly rotate instead of the front rank monopolising the tokens. */
+    tokenCool: number;
     /** Seconds of "don't steer" after a hit, so knockback plays out. */
     stagger: number;
     /** Idle roaming: current destination (none = resting) and the seconds

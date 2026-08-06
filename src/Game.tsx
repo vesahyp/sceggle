@@ -24,6 +24,7 @@ import {
   type GameMap,
 } from './worldmap';
 import { seedRng } from './rng';
+import { setAttackTokens } from './systems';
 import { onGameEvent } from './events';
 import { useKeyboard } from './input';
 import { Terrain } from './scene/Terrain';
@@ -169,6 +170,11 @@ function spawnDestructibles(map: GameMap, area: number, seed: number): Entity[] 
 function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: number): Entity[] {
   seedRng(seed * 31 + area);
   const pool = Math.round((110 + 45 * (area - 1)) * acreage(map));
+  // How many of the roster may swing at once, off the same budget that buys
+  // it. Deeper areas send more at you, but the ceiling is what keeps a horde
+  // readable — past a handful of simultaneous attackers you can't tell what
+  // hit you, and the fight stops being a fight.
+  setAttackTokens(Math.min(8, 2 + Math.round(pool / 90)));
   // Keep spawns off the player's doorstep so areas start quiet. `map.floors`
   // is a generation-time snapshot, so cells the destructibles stamped solid
   // must be filtered out explicitly or a mob could spawn inside a crate.
@@ -300,6 +306,9 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
             : s.weapon.reach * 0.6
           : 1,
       attackIn: 0,
+      token: false,
+      tokenHold: 0,
+      tokenCool: 0,
       stagger: 0,
       wanderTarget: undefined,
       wanderIn: ROT.RNG.getUniform() * 3,

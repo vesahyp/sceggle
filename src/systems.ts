@@ -77,9 +77,32 @@ const SEARCH_LOOK = 2.5;
  *  the mechanic; raw distance shouldn't be the easy out. */
 const SIGHT_KEEP = 1.8;
 
+/** Seconds a mob may sit on an unspent turn before it passes to someone
+ *  else — otherwise one mob that can't quite close blocks a token forever. */
+const TOKEN_HOLD = 2.5;
+/** Seconds before a mob that has had its turn may take another. This is the
+ *  dial that makes a pack rotate rather than the same front rank swinging. */
+const TOKEN_COOLDOWN = 0.7;
+/** Multiple of `attackRange` within which a turn is worth spending on a mob.
+ *  Wider than the band so a mob can be granted one on approach and arrive
+ *  ready to swing, rather than queueing only once it is already in place. */
+const TOKEN_RANGE = 1.6;
+
 /** View-feedback channel the render layer reads and decays: kills and
  *  detonations pump `shake`, the camera trembles by it. Not sim state. */
 export const viewFx = { shake: 0 };
+
+/**
+ * How many mobs may be taking a swing at once. The horde's threat should
+ * come from pressure and positioning, not from twenty bodies all resolving
+ * an attack on the same frame — which is unreadable and unfair in equal
+ * measure. Set per area by `spawnMobs`.
+ */
+let attackTokens = 3;
+
+export function setAttackTokens(count: number): void {
+  attackTokens = Math.max(1, Math.round(count));
+}
 
 /**
  * The shared chase field, rooted at the player's cell — one expansion serves
@@ -183,6 +206,7 @@ export function meleeHitBand(reach: number): { inner: number; outer: number } {
  */
 export function stepSimulation(map: GameMap, delta: number): void {
   updateEnemyAI(map, delta);
+  assignAttackTokens(delta);
   stepVolatiles(delta);
   stepSpawners(map, delta);
   stepMobAttacks(map, delta);
@@ -243,6 +267,79 @@ function separateMobs(): void {
       b.vel.x += nx * push;
       b.vel.z += nz * push;
     }
+  }
+}
+
+/** Scratch queue of mobs waiting for a turn, reused across ticks. */
+const tokenQueue: Positioned[] = [];
+
+/**
+ * Hand out the area's attack tokens: permission to *start* a swing.
+ *
+ * Without this every mob that reaches you attacks the moment its own
+ * cooldown allows, so a pack resolves as a wall of simultaneous hits — the
+ * fight stops being readable and stops being fair, and no amount of tuning
+ * individual damage fixes it, because the problem is the count.
+ *
+ * Holders are recounted from live entities every tick rather than tracked in
+ * a counter, so a mob dying mid-swing can't leak a token and slowly starve
+ * the horde — a bug that would take a long fight to notice.
+ *
+ * Runs after `updateEnemyAI` (so `perceives` is current) and before
+ * `stepMobAttacks` (which enforces the gate). Steering reacts to the token
+ * one frame later, which at 60Hz against a ~1s attack cadence is invisible.
+ */
+function assignAttackTokens(delta: number): void {
+  const player = players.first;
+  tokenQueue.length = 0;
+  let held = 0;
+
+  for (const mob of mobs) {
+    const brain = mob.brain;
+    if (!brain) continue;
+    if (brain.tokenCool > 0) brain.tokenCool = Math.max(0, brain.tokenCool - delta);
+
+    // Only mobs that could actually swing are worth a turn. Exploders and
+    // spawners carry no weapon and never queue — they'd block tokens they
+    // can never spend.
+    const dist = player ? Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) : Infinity;
+    const eligible =
+      !!mob.weapon &&
+      brain.perceives &&
+      brain.stagger <= 0 &&
+      dist <= brain.attackRange * TOKEN_RANGE;
+
+    if (brain.token) {
+      brain.tokenHold -= delta;
+      // A swing in progress keeps its turn no matter what: passing the token
+      // on mid-attack would let a second mob start into the same window,
+      // which is the exact pile-on this exists to prevent.
+      if (mob.attack || (eligible && brain.tokenHold > 0)) {
+        held++;
+        continue;
+      }
+      brain.token = false;
+      brain.tokenCool = TOKEN_COOLDOWN;
+      continue; // just had a turn — not a candidate for this round
+    }
+
+    if (eligible && brain.tokenCool <= 0) tokenQueue.push(mob);
+  }
+
+  const free = attackTokens - held;
+  if (free <= 0 || tokenQueue.length === 0 || !player) return;
+
+  // Closest first, so the front rank swings while the rest circle — the
+  // arrangement that reads as a pack taking turns rather than a queue.
+  const pp = player.pos;
+  tokenQueue.sort(
+    (a, b) =>
+      Math.hypot(pp.x - a.pos.x, pp.z - a.pos.z) - Math.hypot(pp.x - b.pos.x, pp.z - b.pos.z),
+  );
+  for (let i = 0; i < free && i < tokenQueue.length; i++) {
+    const brain = tokenQueue[i].brain!;
+    brain.token = true;
+    brain.tokenHold = TOKEN_HOLD;
   }
 }
 
@@ -545,7 +642,7 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     const weapon = mob.weapon;
     if (!brain || !weapon) continue;
     brain.attackIn -= delta;
-    if (!brain.perceives || brain.stagger > 0 || brain.attackIn > 0) continue;
+    if (!brain.perceives || brain.stagger > 0 || brain.attackIn > 0 || !brain.token) continue;
 
     const dist = Math.hypot(player.pos.x - mob.pos.x, player.pos.z - mob.pos.z) || 1;
 
@@ -562,6 +659,8 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     mob.aimDist = dist;
     brain.attackIn = 1 / weapon.rate;
     startAttack(mob, weapon);
+    // Keep the turn until this swing resolves, then it goes back in the pool.
+    if (mob.attack) brain.tokenHold = mob.attack.windup + mob.attack.duration;
   }
 }
 
@@ -1079,7 +1178,7 @@ function updateEnemyAI(map: GameMap, delta: number): void {
         range: dist / stand,
         health: mob.health ? mob.health.current / mob.health.max : 1,
         allies: crowd.allies,
-        ready: brain.attackIn <= 0,
+        hasToken: brain.token,
       },
       inner,
       brain.intent,

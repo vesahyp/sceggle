@@ -76,16 +76,7 @@ they land (git history is the changelog).
 
 ## Now / next
 
-### 1. Attack tokens (horde choreography)
-- A pack currently commits every member to attacking at once, so fights
-  read as a wall of bodies. Add a shared token pool per area: only the
-  holders may run their attack, the rest orbit at range and wait.
-- Token count scales with the area budget — the difficulty knob that makes
-  a horde threatening without making it unreadable.
-- **Done when:** a 20-mob pack visibly takes turns, and the fight stays
-  legible at horde counts.
-
-### 2. Area difficulty budget
+### 1. Area difficulty budget
 - Mob *rosters* stop being formula-coded: each area gets a difficulty point
   pool (from its area number) that buys the roster — how many mobs, their
   level mix, their placement — with each mob then rolling its own stat pool
@@ -95,7 +86,7 @@ they land (git history is the changelog).
   pool (`App.spawnDestructibles`) should fold into the same area budget.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 3. Footsteps & noise (the mechanic)
+### 2. Footsteps & noise (the mechanic)
 - The visualization shipped (player footstep ripples, mob hearing rings);
   now make it true: **footstep weight** on every mover, noise radius scaling
   with weight and speed, and mob *hearing* reacting to emitted noise instead
@@ -104,14 +95,14 @@ they land (git history is the changelog).
 - **Done when:** the ripple you see IS the noise mobs hear — walking slowly
   past a hearing ring that sprinting would have tripped.
 
-### 4. Minimap of observed enemies
+### 3. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
   observed position of each enemy — observed meaning inside your vision,
   not omniscient.
 - **Done when:** you can navigate an explored area and track known enemies
   from the map alone.
 
-### 5. Rarity on drops
+### 4. Rarity on drops
 - Weapons and mobs are already point-budget generated (`generateWeapon`,
   `App.spawnMobs`); rarity layers on top: a drop rolls a rarity tier from
   the ladder via seeded RNG, granting bonus budget, driving the
@@ -122,13 +113,13 @@ they land (git history is the changelog).
 
 ## Later
 
-### 6. Armor & damage model
+### 5. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weapon-driven; armor only mitigates HP loss.
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 7. Lighting & readability pass
+### 6. Lighting & readability pass
 - The field is murky; rarity colors and the sense-visualization layers
   (cones, rings, ripples) need to read at a glance without adding clutter.
 
