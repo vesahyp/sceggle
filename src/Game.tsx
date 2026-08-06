@@ -23,6 +23,7 @@ import {
   KIND_BARREL,
   type GameMap,
 } from './worldmap';
+import { seedRng } from './rng';
 import { onGameEvent } from './events';
 import { useKeyboard } from './input';
 import { Terrain } from './scene/Terrain';
@@ -48,6 +49,16 @@ function useConstant<T>(factory: () => T): T {
 }
 
 /**
+ * How much field this area has to fill, relative to the map the spawn
+ * constants were tuned on (~1800 walkable cells). The layouts start from
+ * open ground, so an area now carries two to three times that, and a flat
+ * roster spread over it reads as an empty field. Capped: a wide-open plains
+ * shouldn't buy a horde the frame budget can't animate.
+ */
+const SPAWN_REFERENCE_FLOORS = 1800;
+const acreage = (map: GameMap) => Math.min(1.75, map.floors.length / SPAWN_REFERENCE_FLOORS);
+
+/**
  * Roll the destructibles for an area: clusters of breakable crates (cover
  * that stops being cover) and explosive barrels (shoot to detonate; chains).
  * Each occupies one grid cell stamped SOLID here — collision, LOS, and A*
@@ -58,8 +69,8 @@ function useConstant<T>(factory: () => T): T {
  * so the "already stamped by us" cells are exactly the ones it re-stamps.
  */
 function spawnDestructibles(map: GameMap, area: number, seed: number): Entity[] {
-  ROT.RNG.setSeed(seed * 47 + area);
-  let pool = 18 + 8 * area;
+  seedRng(seed * 47 + area);
+  let pool = Math.round((18 + 8 * area) * acreage(map));
   const list: Entity[] = [];
   let nextId = 0;
   const placedNow = new Set<string>();
@@ -156,8 +167,8 @@ function spawnDestructibles(map: GameMap, area: number, seed: number): Entity[] 
  * RNG mid-combat.
  */
 function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: number): Entity[] {
-  ROT.RNG.setSeed(seed * 31 + area);
-  const pool = 110 + 45 * (area - 1);
+  seedRng(seed * 31 + area);
+  const pool = Math.round((110 + 45 * (area - 1)) * acreage(map));
   // Keep spawns off the player's doorstep so areas start quiet. `map.floors`
   // is a generation-time snapshot, so cells the destructibles stamped solid
   // must be filtered out explicitly or a mob could spawn inside a crate.
@@ -464,11 +475,23 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
     }
   };
 
+  // Where the roamers stand: mostly in the arena pockets, because a pocket
+  // with nothing in it is just a walk. The rest scatters over the whole
+  // field so the ground between pockets isn't a safe corridor either.
+  // (The entry plaza is excluded — areas start quiet.)
+  const pockets = map.arenas.slice(1);
+  const pocketCells = candidates.filter((c) =>
+    pockets.some((a) => Math.hypot(c.x - a.x, c.z - a.z) < a.r + 3),
+  );
+
   // Guard purchases first (fixed draw order keeps the roster deterministic),
-  // then the rest of the pool scatters across the map as before.
+  // then the pocket garrisons, then the loose scatter.
   const guardPool = exitCells.length > 0 ? Math.round(pool * 0.35) : 0;
+  const roamPool = pool - guardPool;
+  const pocketPool = pocketCells.length > 0 ? Math.round(roamPool * 0.6) : 0;
   runPool(guardPool, exitCells, true);
-  runPool(pool - guardPool, candidates, false);
+  runPool(pocketPool, pocketCells, false);
+  runPool(roamPool - pocketPool, candidates, false);
   return list;
 }
 
@@ -503,7 +526,9 @@ export function Game({
 }) {
   // Area number drives the seed: reaching the exit regenerates everything.
   const [area, setArea] = useState(1);
-  const map = useMemo(() => generateWorldMap(64, 64, seed + area), [seed, area]);
+  // 80² of mostly-open ground: room to run, and each area rolls its own
+  // layout archetype (see `generateWorldMap`).
+  const map = useMemo(() => generateWorldMap(80, 80, seed + area), [seed, area]);
 
   // Coarse pointer = phone/tablet: bigger zoom and touch sticks. The pack
   // lives in the pause overlay on every layout now.
@@ -740,7 +765,8 @@ export function Game({
           help, run info) lives in the pause overlay. */}
       <div className="hud-strip">
         HP <b className={playerHp <= playerEntity.health!.max * 0.3 ? 'hp-low' : ''}>{playerHp}</b>
-        /{playerEntity.health!.max} · area {area} · {mobEntities.length} mobs · {kills} kills
+        /{playerEntity.health!.max} · area {area} · {map.layout} · {mobEntities.length} mobs ·{' '}
+        {kills} kills
       </div>
 
       {!paused && (

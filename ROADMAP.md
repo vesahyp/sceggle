@@ -30,6 +30,11 @@ they land (git history is the changelog).
   weapons you construct.** Real-time on an open seeded overworld — scattered
   obstacle clusters to kite around. Pack-based spawning (swarms, rushers,
   snipers, exploders, spawners, elites), loot-driven itemization.
+- **The world is open ground with things placed on it**, never corridors
+  carved out of rock: each area rolls a **layout archetype** (plains, ruins,
+  canyon, colosseum, caverns) that dresses the same skeleton — an arena
+  spine of open fight pockets running west → east, roads between them, cover
+  in the gaps. Variety is the archetype roll; open space is the default.
 - **Move-and-shoot at full speed** (Brawl Stars feel): attacking is not a
   movement commitment for either side — kiting IS the combat.
 - **The player is ranged-only.** Guns fire at the cursor / aim stick; melee

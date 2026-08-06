@@ -1,5 +1,5 @@
-import * as ROT from 'rot-js';
 import { generateWeapon, weaponBudget, type WeaponDef } from './weapons';
+import { seedRng } from './rng';
 
 /**
  * Character archetypes — the genre stereotypes a run starts from.
@@ -99,23 +99,27 @@ if (import.meta.env.DEV) {
 }
 
 /**
- * Roll the archetype's starter gun for a world seed. Seeded on its own
- * stream (same seed + same pick → same gun) and rerolled — bounded — until
- * the archetype predicate and the never-a-dud floors pass: the opening gun
- * has to carry the first horde on its own. Drops keep their spiky rolls;
- * the slot machine starts with the first pickup.
- *
- * The bound looks huge because the roll space is spiky: each `fits` shape
- * lands on only ~1–2% of raw rolls (measured), so 1000 tries is what makes
- * an off-archetype fallback effectively impossible (~1e-6) while a roll
- * itself costs microseconds, once per run start.
+ * Roll the archetype's starter gun for a world seed. On its own seeded
+ * stream (same seed + same pick → same gun) — through seedRng, because the
+ * per-archetype seeds are near-sequential and rot.js leaks raw seeds into
+ * early draws. Best-of-N among rolls that pass the archetype predicate and
+ * the never-a-dud floors, rather than first-to-pass: the shapes land on
+ * only ~1–2% of raw rolls (measured), so "stop at the first pass" mostly
+ * shipped a barely-passing gun, and the opening gun has to carry the first
+ * horde on its own. Drops keep their spiky rolls — the slot machine starts
+ * with the first pickup.
  */
 export function rollStarterWeapon(c: CharacterDef, seed: number): WeaponDef {
-  ROT.RNG.setSeed(seed * 13 + CHARACTERS.indexOf(c));
+  seedRng(seed * 13 + CHARACTERS.indexOf(c));
   const budget = weaponBudget(1) + 4 + c.spend.barrel;
-  let w = generateWeapon('ranged', 1, budget);
-  for (let i = 0; i < 1000 && !(c.fits(w) && w.damage >= 2 && w.rate >= 0.8); i++) {
-    w = generateWeapon('ranged', 1, budget);
+  const score = (w: WeaponDef) => w.damage * w.rate * w.count;
+  let best: WeaponDef | undefined;
+  let fallback = generateWeapon('ranged', 1, budget);
+  for (let i = 0; i < 1000; i++) {
+    const w = generateWeapon('ranged', 1, budget);
+    if (c.fits(w) && w.damage >= 2 && w.rate >= 0.8) {
+      if (!best || score(w) > score(best)) best = w;
+    } else if (score(w) > score(fallback)) fallback = w;
   }
-  return w;
+  return best ?? fallback;
 }
