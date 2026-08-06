@@ -10,6 +10,16 @@ import {
   KIND_FLOOR,
   type GameMap,
 } from './worldmap';
+import { buildFlowField, flowAt, type FlowField } from './flowfield';
+import {
+  addDanger,
+  addInterest,
+  addWallDanger,
+  createSteering,
+  resetSteering,
+  resolveSteering,
+  type Steering,
+} from './steering';
 import type { MechanismDef, WeaponDef } from './weapons';
 import { emitGameEvent } from './events';
 
@@ -37,9 +47,75 @@ const RANGED_AIM = 0.15;
 /** Angle between fanned projectiles of a multishot weapon. */
 const MULTISHOT_SPREAD = 0.12;
 
+/** How far ahead a mob probes for terrain when steering. A bit over a body
+ *  width, so it commits to going around a rock before it's scraping it. */
+const WALL_LOOKAHEAD = 0.9;
+/** Veto strength of a blocked direction — well above any interest, since
+ *  walking into a wall is never the answer. */
+const WALL_DANGER = 1;
+/** How hard a neighbouring body pushes a heading away, at full overlap. */
+const CROWD_DANGER = 0.55;
+/** Body-radii multiple within which neighbours are worth avoiding. */
+const CROWD_RANGE = 2.6;
+/** Weight of the orbit desire relative to closing (1). Below 1 so a mob
+ *  still closes while it circles, spiralling in rather than ringing around
+ *  at a fixed radius. */
+const ORBIT_WEIGHT = 0.75;
+/** Fraction of `attackRange` a mob will let the player get inside before it
+ *  gives ground. The gap between this and 1 is the band it fights in. */
+const STANDOFF_INNER = 0.72;
+/** Multiple of `attackRange` at which orbiting starts to fade in. */
+const ORBIT_FADE = 1.7;
+
 /** View-feedback channel the render layer reads and decays: kills and
  *  detonations pump `shake`, the camera trembles by it. Not sim state. */
 export const viewFx = { shake: 0 };
+
+/**
+ * The shared chase field, rooted at the player's cell — one expansion serves
+ * every mob (see flowfield.ts). Cached until the player crosses a cell
+ * boundary, the area changes, or terrain is carved.
+ */
+let chaseField: FlowField | undefined;
+let chaseFieldMap: GameMap | undefined;
+
+/** Terrain changed under the field (a destructible died and its cell opened),
+ *  so the cached expansion is stale. */
+export function invalidateFlowField(): void {
+  chaseFieldMap = undefined;
+}
+
+function ensureChaseField(map: GameMap, goalX: number, goalZ: number): FlowField {
+  if (chaseField && chaseFieldMap === map && chaseField.goalX === goalX && chaseField.goalZ === goalZ) {
+    return chaseField;
+  }
+  chaseField = buildFlowField(map, goalX, goalZ, chaseFieldMap === map ? chaseField : undefined);
+  chaseFieldMap = map;
+  return chaseField;
+}
+
+/**
+ * Mobs bucketed by world cell, rebuilt each AI tick. Crowd avoidance only
+ * cares about bodies within a couple of radii, so a 3×3 bucket lookup beats
+ * scanning the whole horde per mob.
+ */
+type Positioned = Entity & { pos: { x: number; z: number } };
+type MobGrid = Map<number, Positioned[]>;
+
+/** Scratch vote maps — steering is resolved one mob at a time inside the AI
+ *  tick, so a single instance is reused rather than allocated per mob. */
+const steer = createSteering();
+
+function buildMobGrid(): MobGrid {
+  const grid: MobGrid = new Map();
+  for (const m of mobs) {
+    const key = worldToCell(m.pos.z) * 4096 + worldToCell(m.pos.x);
+    const bucket = grid.get(key);
+    if (bucket) bucket.push(m);
+    else grid.set(key, [m]);
+  }
+  return grid;
+}
 
 /** Look up an installed mechanism by type. */
 const mech = (mechs: MechanismDef[] | undefined, type: MechanismDef['type']) =>
@@ -405,6 +481,8 @@ function damageDestructible(map: GameMap, d: Entity, amount: number): void {
   const c = d.destructible.cell;
   map.cells[c.z * map.width + c.x] = 0;
   map.kinds[c.z * map.width + c.x] = KIND_FLOOR;
+  // The route through here just changed — the cached chase field is stale.
+  invalidateFlowField();
   if (d.destructible.explosive) {
     // Barrels are indiscriminate, like exploder mobs — both sides burn.
     queueExplosion({
@@ -897,6 +975,11 @@ function updateEnemyAI(map: GameMap, delta: number): void {
   const pCellX = worldToCell(pp.x);
   const pCellZ = worldToCell(pp.z);
 
+  // One expansion out from the player serves the whole horde this tick, and
+  // one bucket index serves everyone's crowd avoidance.
+  const chase = ensureChaseField(map, pCellX, pCellZ);
+  const grid = buildMobGrid();
+
   for (const mob of mobs) {
     if (mob.hitFlash) mob.hitFlash = Math.max(0, mob.hitFlash - delta);
     if (mob.reveal) mob.reveal = Math.max(0, mob.reveal - delta);
@@ -949,39 +1032,69 @@ function updateEnemyAI(map: GameMap, delta: number): void {
       mob.aim.z = (pp.z - mob.pos.z) / dist;
     }
 
-    // Hold position once in attack range.
-    if (dist <= brain.attackRange) {
-      mob.vel.x = 0;
-      mob.vel.z = 0;
-      brain.path = [];
-      continue;
+    // Context steering: every desire votes on a ring of candidate headings,
+    // then the votes resolve into one. See steering.ts for why this shape
+    // rather than a chain of behaviours overwriting each other.
+    resetSteering(steer);
+
+    const toX = dist > 1e-4 ? (pp.x - mob.pos.x) / dist : 0;
+    const toZ = dist > 1e-4 ? (pp.z - mob.pos.z) / dist : 1;
+    const stand = brain.attackRange;
+
+    // Hold a band around the preferred fighting distance: close from outside
+    // it, give ground from well inside it, and neither in between.
+    if (dist > stand) {
+      // Follow the shared field toward the player. It has nothing to say when
+      // the mob is already in the player's cell or is walled off from them —
+      // then just lean at the player and let danger handle the geometry.
+      const flow = flowAt(chase, worldToCell(mob.pos.x), worldToCell(mob.pos.z));
+      if (flow.x !== 0 || flow.z !== 0) addInterest(steer, flow.x, flow.z, 1);
+      else addInterest(steer, toX, toZ, 1);
+    } else if (dist < stand * STANDOFF_INNER) {
+      addInterest(steer, -toX, -toZ, 1);
     }
 
-    // Periodically recompute the route to the player's current cell.
-    brain.repathIn -= delta;
-    if (brain.repathIn <= 0 || brain.path.length === 0) {
-      brain.repathIn = 0.25;
-      brain.path = computePath(map, worldToCell(mob.pos.x), worldToCell(mob.pos.z), pCellX, pCellZ);
+    // Orbit, fading in as the mob reaches its band. This is what stops a
+    // pack from arriving and standing still: in range, circling IS the move.
+    const orbit = Math.min(1, Math.max(0, (stand * ORBIT_FADE - dist) / (stand * (ORBIT_FADE - 1))));
+    if (orbit > 0) {
+      addInterest(steer, -toZ * brain.strafe, toX * brain.strafe, ORBIT_WEIGHT * orbit);
     }
 
-    // Steer toward the next waypoint (fall back to a straight line at the player).
-    let tx = pp.x;
-    let tz = pp.z;
-    if (brain.path.length > 0) {
-      const next = brain.path[0];
-      tx = cellToWorld(next.x);
-      tz = cellToWorld(next.z);
-      if (Math.hypot(tx - mob.pos.x, tz - mob.pos.z) < 0.25) {
-        brain.path.shift();
+    // Bodies and terrain are what to avoid while doing all that.
+    addCrowdDanger(steer, grid, mob);
+    addWallDanger(steer, map, mob.pos.x, mob.pos.z, mob.radius ?? DEFAULT_RADIUS, WALL_LOOKAHEAD, WALL_DANGER);
+
+    const dir = resolveSteering(steer);
+    const speed = mob.moveSpeed ?? MOB_SPEED;
+    mob.vel.x = dir.x * speed;
+    mob.vel.z = dir.z * speed;
+  }
+}
+
+/**
+ * Neighbouring bodies push a heading away, hardest when they're touching.
+ * This is the anticipatory half of crowd handling — `separateMobs` still
+ * resolves actual overlap after the fact, but steering around a neighbour
+ * beforehand is what makes a pack fan out instead of piling into one lane.
+ */
+function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): void {
+  const cx = worldToCell(mob.pos.x);
+  const cz = worldToCell(mob.pos.z);
+  const reach = (mob.radius ?? DEFAULT_RADIUS) * CROWD_RANGE;
+  for (let z = cz - 1; z <= cz + 1; z++) {
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      const bucket = grid.get(z * 4096 + x);
+      if (!bucket) continue;
+      for (const other of bucket) {
+        if (other === mob) continue;
+        const dx = other.pos.x - mob.pos.x;
+        const dz = other.pos.z - mob.pos.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= reach || d < 1e-4) continue;
+        addDanger(steer, dx, dz, CROWD_DANGER * (1 - d / reach));
       }
     }
-
-    const dx = tx - mob.pos.x;
-    const dz = tz - mob.pos.z;
-    const len = Math.hypot(dx, dz) || 1;
-    const speed = mob.moveSpeed ?? MOB_SPEED;
-    mob.vel.x = (dx / len) * speed;
-    mob.vel.z = (dz / len) * speed;
   }
 }
 
@@ -1200,20 +1313,4 @@ function stepProjectile(
     return true;
   }
   return false;
-}
-
-/** A* over walkable cells; returns the route from (fromX,fromZ) to the target,
- *  excluding the mob's own starting cell. */
-function computePath(
-  map: GameMap,
-  fromX: number,
-  fromZ: number,
-  toX: number,
-  toZ: number,
-): Array<{ x: number; z: number }> {
-  const astar = new ROT.Path.AStar(toX, toZ, (x, z) => !map.isWall(x, z), { topology: 4 });
-  const path: Array<{ x: number; z: number }> = [];
-  astar.compute(fromX, fromZ, (x, z) => path.push({ x, z }));
-  path.shift(); // first cell is where the mob already stands
-  return path;
 }

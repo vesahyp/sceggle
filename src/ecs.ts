@@ -179,14 +179,14 @@ export interface Entity {
    * directional and rolled per mob — that's what makes sneaking a mechanic:
    * the view draws each mob's cone, and you slip past behind it. Until
    * alerted the mob wanders between nearby points, facing where it walks.
-   * Once `alerted` it chases for good: a system pathfinds toward the
-   * player's cell and steers the entity along the route.
+   * Once `alerted` it chases for good: it follows the shared flow field
+   * toward the player and resolves its actual heading with context steering
+   * (see systems.updateEnemyAI).
    */
   brain?: {
-    /** Remaining grid cells to walk, nearest first. */
-    path: Array<{ x: number; z: number }>;
-    /** Seconds until the next A* recompute. */
-    repathIn: number;
+    /** Which way this mob circles its target: +1 or -1, rolled at spawn so a
+     *  pack splits both ways around you instead of orbiting in lockstep. */
+    strafe: number;
     /** See distance (needs facing + clear line of sight). */
     sight: number;
     /** Half-angle (radians) of the vision cone around `aim`. */
@@ -195,7 +195,9 @@ export interface Entity {
     hearing: number;
     /** Latched once the player is noticed (or the mob is hit). */
     alerted: boolean;
-    /** Stop short at this world distance (melee reach / ranged stand-off). */
+    /** Preferred fighting distance (melee reach / ranged stand-off). The mob
+     *  closes when further out, gives ground when well inside it, and orbits
+     *  once it's there. */
     attackRange: number;
     /** Seconds until this mob may attack again (1/weapon.rate cadence). */
     attackIn: number;
