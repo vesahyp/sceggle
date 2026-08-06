@@ -38,8 +38,12 @@ export const touch = {
   /** Movement intent, unit-clamped, analog (magnitude scales speed). */
   move: { x: 0, z: 0, active: false },
   /** Aim direction + trigger. Direction persists after release so the
-   *  player keeps facing their last aim, like the mouse cursor does. */
-  aim: { x: 0, z: 1, active: false, fire: false },
+   *  player keeps facing their last aim, like the mouse cursor does.
+   *  `canceled` marks a trigger release that came from easing the stick
+   *  back to center rather than lifting the thumb — the Brawl-style cancel
+   *  gesture. Lob weapons fire on release UNLESS canceled (Player.tsx
+   *  consumes and clears the flag); spray weapons ignore it. */
+  aim: { x: 0, z: 1, active: false, fire: false, canceled: false },
   sticks: {
     left: { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 } as StickVisual,
     right: { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 } as StickVisual,
@@ -82,7 +86,12 @@ function update(side: 'left' | 'right', px: number, py: number): void {
       touch.aim.x = nx;
       touch.aim.z = ny;
     }
-    touch.aim.fire = touch.aim.fire ? mag > FIRE_OFF : mag >= FIRE_ON;
+    const firing = touch.aim.fire ? mag > FIRE_OFF : mag >= FIRE_ON;
+    // Trigger dropped by easing to center (thumb still down): that's the
+    // cancel gesture, not a shot. A fresh pull past FIRE_ON re-arms.
+    if (touch.aim.fire && !firing) touch.aim.canceled = true;
+    if (!touch.aim.fire && firing) touch.aim.canceled = false;
+    touch.aim.fire = firing;
   }
 }
 

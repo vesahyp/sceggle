@@ -98,7 +98,12 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
   const lineMat = useRef<MeshBasicMaterial>(null);
   const strike = useRef<Mesh>(null);
   const endRing = useRef<Mesh>(null);
+  const endMat = useRef<MeshBasicMaterial>(null);
   const attackHeld = useRef(false);
+  /** Lob trigger state: held-last-frame (for the release edge) and a queued
+   *  round (released mid-re-arm — fires the moment the crank finishes). */
+  const wasHeld = useRef(false);
+  const pending = useRef(false);
   const cooldown = useRef(0);
   const camera = useThree((s) => s.camera);
   const pointer = useThree((s) => s.pointer);
@@ -189,13 +194,35 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
       }
     }
 
-    // --- Attack cadence: while held (button, key, or aim-stick
-    //     deflection), attack every 1/rate seconds ---
+    // --- Attack trigger ---
     cooldown.current -= delta;
-    if ((attackHeld.current || touch.aim.fire) && cooldown.current <= 0) {
+    const held = attackHeld.current || touch.aim.fire;
+    if (weapon.delivery === 'lob') {
+      // Brawl-style mortar: holding AIMS — the landing ring tracks the
+      // cursor / aim stick and nothing fires — and releasing fires the
+      // shell at the aimed spot. A release while the crank is still turning
+      // queues one round (fires the moment it's ready); pressing again to
+      // re-aim cancels the queue. Easing the touch stick back to center
+      // cancels without firing (the Brawl cancel gesture) — touch.ts flags
+      // that release as `canceled`.
+      if (held) {
+        pending.current = false;
+        touch.aim.canceled = false;
+      } else if (wasHeld.current && !touch.aim.canceled) {
+        pending.current = true;
+      }
+      if (pending.current && cooldown.current <= 0) {
+        pending.current = false;
+        cooldown.current = 1 / weapon.rate;
+        performAttack();
+      }
+    } else if (held && cooldown.current <= 0) {
+      // Bolts (and melee) spray while held, every 1/rate seconds — the
+      // move-and-shoot hose a horde game wants.
       cooldown.current = 1 / weapon.rate;
       performAttack(); // melee: starts a sim swing · ranged: fires a bolt
     }
+    wasHeld.current = held;
 
     // --- Weapon orientation + swing animation (driven by the SIM's swing
     //     state, so the blade is exactly where the hits land) ---
@@ -243,6 +270,11 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         // splash before committing.
         const ringScale = weapon.delivery === 'lob' && weapon.blastRadius > 0 ? weapon.blastRadius / 0.17 : 1;
         endRing.current.scale.setScalar(ringScale);
+      }
+      // While a lobber is held it's AIMING (fire comes on release): the
+      // landing ring lights up to say "this is where it lands".
+      if (endMat.current) {
+        endMat.current.opacity = weapon.delivery === 'lob' && held ? 1 : 0.65;
       }
     }
 
@@ -337,7 +369,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
               <meshBasicMaterial ref={lineMat} color="#ffd166" transparent opacity={0.5} depthWrite={false} depthTest={false} />
             </mesh>
             <mesh ref={endRing} geometry={END_GEOM} renderOrder={991}>
-              <meshBasicMaterial color="#ffd166" transparent opacity={0.65} side={DoubleSide} depthWrite={false} depthTest={false} />
+              <meshBasicMaterial ref={endMat} color="#ffd166" transparent opacity={0.65} side={DoubleSide} depthWrite={false} depthTest={false} />
             </mesh>
           </>
         )}

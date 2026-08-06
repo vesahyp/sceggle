@@ -38,6 +38,10 @@ function Help() {
           <kbd>Click</kbd> / <kbd>Space</kbd> fire (hold to keep firing at the cursor)
         </li>
         <li>
+          Lob guns aim while held — the landing ring lights up at your cursor — and fire on
+          release. On touch, ease the stick back to center to cancel the shot.
+        </li>
+        <li>
           <kbd>Esc</kbd> pause menu · <kbd>I</kbd> pack · <kbd>H</kbd> this help
         </li>
         <li>Touch: left thumb moves, right thumb aims and fires · ⚙ opens this menu</li>
