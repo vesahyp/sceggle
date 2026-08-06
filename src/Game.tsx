@@ -247,7 +247,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
     drops: s.drops,
     volatile: s.volatile,
     spawner: s.spawner,
-    aim: { x: 0, z: 1 }, // faces the player once alerted; swings sweep around it
+    aim: { x: 0, z: 1 }, // faces the player while hunting; swings sweep around it
     pos: { x: cellToWorld(cell.x), z: cellToWorld(cell.z) },
     vel: { x: 0, z: 0 },
     radius: 0.28 + 0.04 * (s.level - 1),
@@ -262,7 +262,13 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
       sight: s.sight ?? +(4.5 + ROT.RNG.getUniform() * 2).toFixed(1),
       fov: s.fov ?? +(0.5 + ROT.RNG.getUniform() * 0.6).toFixed(2),
       hearing: s.hearing ?? +(2.5 + ROT.RNG.getUniform() * 1.5).toFixed(1),
-      alerted: false,
+      // How long it holds onto a sighting. Rolled like the senses are, so a
+      // pack splits into the ones that keep checking and the ones that shrug.
+      memory: +(4 + ROT.RNG.getUniform() * 4).toFixed(1),
+      perceives: false,
+      alert: 0,
+      searchLook: 0,
+      lastSeen: undefined,
       // The band each fights in: melee circles at swing reach, ranged holds
       // off inside gun range, exploders push in to fuse range. Spawners have
       // no say — speed 0 pins them wherever they stand.

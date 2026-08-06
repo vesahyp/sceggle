@@ -76,21 +76,12 @@ they land (git history is the changelog).
 
 ## Now / next
 
-### 1. Mob memory: last known position & search
-- `brain.alerted` is a permanent latch: a mob either has never seen you or
-  hunts you forever. Give it a memory instead — the last position it
-  actually perceived you at, an alertness that decays when perception
-  fails, and a search state that walks to that spot and looks around before
-  giving up and returning to wander.
-- Perception already models eyes (cone + LOS + grass) and ears; this is the
-  half that makes breaking line of sight *mean* something.
-- **Done when:** you can break LOS, move, and watch the pack commit to
-  where you were — not where you are.
-
-### 2. Utility-scored behaviour from the spawn pool
-- Every mob runs identical logic today; only `attackRange` and weapon stats
-  differ, so a sniper is a zombie that stops further away. Replace the
-  fixed steering weights with **utility scores**: each candidate action
+### 1. Utility-scored behaviour from the spawn pool
+- Every mob runs identical logic today. Its senses, memory and `attackRange`
+  are rolled, but the *behaviour* reading them is one code path, so a sniper
+  is a zombie that stops further away. Replace the fixed steering weights
+  (`ORBIT_WEIGHT`, `STANDOFF_INNER`, `SEARCH_SPEED`, …) with **utility
+  scores**: each candidate action
   (close, hold, orbit, retreat, regroup) scores itself from world facts,
   highest wins.
 - The scoring weights (aggression, caution, patience) are **rolled from the
@@ -100,7 +91,7 @@ they land (git history is the changelog).
 - **Done when:** two same-level mobs from one seed can read as a rusher and
   a skirmisher without either being a special case in code.
 
-### 3. Attack tokens (horde choreography)
+### 2. Attack tokens (horde choreography)
 - A pack currently commits every member to attacking at once, so fights
   read as a wall of bodies. Add a shared token pool per area: only the
   holders may run their attack, the rest orbit at range and wait.
@@ -109,7 +100,7 @@ they land (git history is the changelog).
 - **Done when:** a 20-mob pack visibly takes turns, and the fight stays
   legible at horde counts.
 
-### 4. Area difficulty budget
+### 3. Area difficulty budget
 - Mob *rosters* stop being formula-coded: each area gets a difficulty point
   pool (from its area number) that buys the roster — how many mobs, their
   level mix, their placement — with each mob then rolling its own stat pool
@@ -119,7 +110,7 @@ they land (git history is the changelog).
   pool (`App.spawnDestructibles`) should fold into the same area budget.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 5. Footsteps & noise (the mechanic)
+### 4. Footsteps & noise (the mechanic)
 - The visualization shipped (player footstep ripples, mob hearing rings);
   now make it true: **footstep weight** on every mover, noise radius scaling
   with weight and speed, and mob *hearing* reacting to emitted noise instead
@@ -128,14 +119,14 @@ they land (git history is the changelog).
 - **Done when:** the ripple you see IS the noise mobs hear — walking slowly
   past a hearing ring that sprinting would have tripped.
 
-### 6. Minimap of observed enemies
+### 5. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
   observed position of each enemy — observed meaning inside your vision,
   not omniscient.
 - **Done when:** you can navigate an explored area and track known enemies
   from the map alone.
 
-### 7. Rarity on drops
+### 6. Rarity on drops
 - Weapons and mobs are already point-budget generated (`generateWeapon`,
   `App.spawnMobs`); rarity layers on top: a drop rolls a rarity tier from
   the ladder via seeded RNG, granting bonus budget, driving the
@@ -146,13 +137,13 @@ they land (git history is the changelog).
 
 ## Later
 
-### 8. Armor & damage model
+### 7. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weapon-driven; armor only mitigates HP loss.
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 9. Lighting & readability pass
+### 8. Lighting & readability pass
 - The field is murky; rarity colors and the sense-visualization layers
   (cones, rings, ripples) need to read at a glance without adding clutter.
 

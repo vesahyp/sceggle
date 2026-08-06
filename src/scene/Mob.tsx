@@ -22,7 +22,8 @@ HEARING_RING_GEOM.rotateX(-Math.PI / 2);
 /**
  * A mob. Pure view: perception, AI, and knockback live in the simulation;
  * this just mirrors `entity.pos` into the mesh. Role shows as tint (spawn
- * roll) + size by level; an alerted mob glows faintly red, a lit exploder
+ * roll) + size by level; a hunting mob glows faintly red, a searching one
+ * amber, a lit exploder
  * strobes, a scalded mob flickers ember-orange. The held weapon comes from
  * `entity.weapon`, fixed at spawn.
  *
@@ -81,7 +82,9 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
     }
     if (mat.current) {
       // Priority: fuse strobe > just-hit flash > windup telegraph >
-      // scald flicker > alerted glow.
+      // scald flicker > alert glow. The glow separates hunting (red — it has
+      // you) from searching (amber — it only has your last position), so you
+      // can read whether breaking line of sight actually worked.
       const winding = entity.attack && entity.attack.t <= entity.attack.windup;
       const strobing = entity.volatile?.lit && Math.sin(clock.elapsedTime * 45) > 0;
       const scalded = entity.burning && Math.sin(clock.elapsedTime * 18) > -0.3;
@@ -94,9 +97,11 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
               ? '#a03030'
               : scalded
                 ? '#b0521a'
-                : entity.brain?.alerted
+                : entity.brain?.perceives
                   ? '#5a1414'
-                  : '#000000',
+                  : (entity.brain?.alert ?? 0) > 0
+                    ? '#4a3208'
+                    : '#000000',
       );
       mat.current.emissiveIntensity = strobing ? 0.9 : hitK > 0 ? 1.1 * hitK : 1;
       // Grass is real for mobs too — the same fade tell the player gets
@@ -105,7 +110,9 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
       mat.current.opacity =
         entity.pos && map.isGrass(worldToCell(entity.pos.x), worldToCell(entity.pos.z)) ? 0.55 : 1;
     }
-    if (idleSenses.current) idleSenses.current.visible = !entity.brain?.alerted;
+    // Senses stay drawn while the mob is merely searching — the sweeping
+    // cone IS the information you need to slip past it.
+    if (idleSenses.current) idleSenses.current.visible = !entity.brain?.perceives;
     statusPivot.current?.quaternion.copy(camera.quaternion);
     if (status.current) status.current.visible = (entity.brain?.stagger ?? 0) > 0;
 

@@ -84,14 +84,14 @@ export interface Entity {
    *  kill itself draws no RNG). Absent = drops nothing. */
   drops?: { weapon?: WeaponDef; part?: MechanismDef };
 
-  /** Walking bomb: once alerted and close, it lights its fuse, halts, and
-   *  detonates — damaging BOTH sides, so packs of these chain off each
-   *  other. Dying to damage also sets it off. */
+  /** Walking bomb: once it perceives the player and gets close, it lights its
+   *  fuse, halts, and detonates — damaging BOTH sides, so packs of these
+   *  chain off each other. Dying to damage also sets it off. */
   volatile?: { radius: number; damage: number; fuse: number; lit: boolean };
 
-  /** Stationary mob that releases pre-rolled chaff while alerted. The
-   *  spawnees were generated with the area (determinism); the sim only picks
-   *  when and where they step out. */
+  /** Stationary mob that releases pre-rolled chaff while it still remembers
+   *  the player. The spawnees were generated with the area (determinism);
+   *  the sim only picks when and where they step out. */
   spawner?: { interval: number; next: number; pending: Entity[] };
 
   /** Damage-over-time burn (the `scald` mechanism). Ticks every `interval`
@@ -178,10 +178,14 @@ export interface Entity {
    * *hearing* (within `hearing` distance, obstacles or not). Vision is
    * directional and rolled per mob — that's what makes sneaking a mechanic:
    * the view draws each mob's cone, and you slip past behind it. Until
-   * alerted the mob wanders between nearby points, facing where it walks.
-   * Once `alerted` it chases for good: it follows the shared flow field
-   * toward the player and resolves its actual heading with context steering
-   * (see systems.updateEnemyAI).
+   * roused the mob wanders between nearby points, facing where it walks.
+   *
+   * Perception is re-evaluated every tick and never latches. What persists
+   * is *memory*: perceiving the player pins `lastSeen` and fills `alert`,
+   * which then drains over `memory` seconds once perception fails. A mob
+   * with `alert` left but nothing perceived searches — it walks to where the
+   * player was and sweeps its cone there — so breaking line of sight buys
+   * you the time it takes them to check the spot and give up.
    */
   brain?: {
     /** Which way this mob circles its target: +1 or -1, rolled at spawn so a
@@ -193,8 +197,23 @@ export interface Entity {
     fov: number;
     /** Hear distance (works through obstacles). */
     hearing: number;
-    /** Latched once the player is noticed (or the mob is hit). */
-    alerted: boolean;
+    /** Does this mob see or hear the player *right now*? Recomputed every
+     *  tick by updateEnemyAI, which owns it; attacks, exploder fuses and the
+     *  view read it. Not memory — that's `alert`. */
+    perceives: boolean;
+    /** Memory strength, 1 (just perceived, or just been hit) draining to 0
+     *  over `memory` seconds once perception fails. Above 0 the mob is still
+     *  hunting; at 0 it forgets and goes back to wandering. */
+    alert: number;
+    /** Seconds of memory this mob holds — rolled at spawn, so some of the
+     *  horde gives up quickly and some keeps checking. */
+    memory: number;
+    /** Where the player was when last perceived — what a searching mob walks
+     *  to. Cleared on forgetting. */
+    lastSeen?: { x: number; z: number };
+    /** Seconds left of looking around after reaching `lastSeen`. Running out
+     *  is giving up, even with `alert` to spare. */
+    searchLook: number;
     /** Preferred fighting distance (melee reach / ranged stand-off). The mob
      *  closes when further out, gives ground when well inside it, and orbits
      *  once it's there. */
@@ -209,7 +228,7 @@ export interface Entity {
     wanderIn: number;
     /** Guard post: when set, wander targets are picked around this anchor
      *  instead of the mob's own position — the mob holds its station until
-     *  alerted. Radius is the leash: small = sentry, large = patroller. */
+     *  roused. Radius is the leash: small = sentry, large = patroller. */
     post?: { x: number; z: number; radius: number };
   };
 }
