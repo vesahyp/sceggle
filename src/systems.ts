@@ -488,10 +488,16 @@ function damagePlayer(
   ctx?: HitCtx,
 ): void {
   player.hitFlash = 0.2;
-  const kb = shoveVelocity(knockback) * PLAYER_KB_FACTOR;
+  // `resist` scales the shove and the stun exactly as it does for mobs —
+  // it's the same component, bought from the character's point spend.
+  const kb =
+    shoveVelocity(knockback) * PLAYER_KB_FACTOR * (1 - (player.resist?.knockback ?? 0));
   player.vel!.x = dirX * kb;
   player.vel!.z = dirZ * kb;
-  player.stun = Math.min(PLAYER_STUN_CAP, Math.max(player.stun ?? 0, stagger));
+  player.stun = Math.min(
+    PLAYER_STUN_CAP,
+    Math.max(player.stun ?? 0, stagger * (1 - (player.resist?.stagger ?? 0))),
+  );
   cancelWindup(player);
   // Getting hit trembles the screen — pain you feel without the sim pausing.
   viewFx.shake = Math.min(0.5, viewFx.shake + 0.1);

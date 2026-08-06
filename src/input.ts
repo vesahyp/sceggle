@@ -17,6 +17,14 @@ type PressHandlers = Record<string, () => void>;
 export function useKeyboard(onPress: PressHandlers = {}) {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // Typing in a form field (the seed input) must not steer the game or
+      // fire hotkeys — the listeners live on window and see everything.
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      )
+        return;
       if (!held.has(e.code)) {
         onPress[e.code]?.();
       }

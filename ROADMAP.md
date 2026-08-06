@@ -45,6 +45,13 @@ they land (git history is the changelog).
 - **The exit is defended:** a share of each area's spawn pool stations
   guard packs around the exit pad on sentry/patrol leashes; the rest of the
   roster roams the field as before.
+- **Runs start from a menu:** continue (backgrounding auto-pauses) / new
+  game → pick a **character archetype** and a **world seed** (rolled or
+  typed — re-entering one replays that run). Archetypes are Brawl-style
+  genre stereotypes (bruiser, sharpshooter, artillerist, skirmisher)
+  implemented as preset spends of one shared character point budget
+  (`src/characters.ts`); each constrains the seeded starter-gun roll, so
+  the pick decides HOW you fight and the seed decides the numbers.
 - **Weapons are constructed, not just rolled:** guns roll fitting slots;
   **cogs** (mechanism parts) drop and install to change what an attack DOES
   — chain, scald, pull, corpse-burst, ricochet, split. Behaviors are shared
@@ -64,17 +71,7 @@ they land (git history is the changelog).
 
 ## Now / next
 
-### 1. Main menu, character creation & world seed
-- A main menu before the game: new run rolls (or lets you enter) a **world
-  seed**, shown in the HUD — the one number every generation derives from.
-  Today's fixed `SEED = 1337` retires.
-- **Character creation:** the player is generated like everything else — a
-  point pool distributed across stats (max HP, move speed, …) by the player
-  instead of the RNG. Same seed + same build → same run.
-- **Done when:** two runs with different seeds differ everywhere; re-entering
-  a seed reproduces the run.
-
-### 2. Area difficulty budget
+### 1. Area difficulty budget
 - Mob *rosters* stop being formula-coded: each area gets a difficulty point
   pool (from its area number) that buys the roster — how many mobs, their
   level mix, their placement — with each mob then rolling its own stat pool
@@ -84,7 +81,7 @@ they land (git history is the changelog).
   pool (`App.spawnDestructibles`) should fold into the same area budget.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 3. Footsteps & noise (the mechanic)
+### 2. Footsteps & noise (the mechanic)
 - The visualization shipped (player footstep ripples, mob hearing rings);
   now make it true: **footstep weight** on every mover, noise radius scaling
   with weight and speed, and mob *hearing* reacting to emitted noise instead
@@ -93,14 +90,14 @@ they land (git history is the changelog).
 - **Done when:** the ripple you see IS the noise mobs hear — walking slowly
   past a hearing ring that sprinting would have tripped.
 
-### 4. Minimap of observed enemies
+### 3. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
   observed position of each enemy — observed meaning inside your vision,
   not omniscient.
 - **Done when:** you can navigate an explored area and track known enemies
   from the map alone.
 
-### 5. Rarity on drops
+### 4. Rarity on drops
 - Weapons and mobs are already point-budget generated (`generateWeapon`,
   `App.spawnMobs`); rarity layers on top: a drop rolls a rarity tier from
   the ladder via seeded RNG, granting bonus budget, driving the
@@ -111,18 +108,21 @@ they land (git history is the changelog).
 
 ## Later
 
-### 6. Armor & damage model
+### 5. Armor & damage model
 - Activate the scaffolded `armor` component: `damage = max(1, raw - armor.value)`.
 - Knockback stays weapon-driven; armor only mitigates HP loss.
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 7. Lighting & readability pass
+### 6. Lighting & readability pass
 - The field is murky; rarity colors and the sense-visualization layers
   (cones, rings, ripples) need to read at a glance without adding clutter.
 
 ## Someday / ideas
 
+- Freeform character creation: expose the archetypes' shared point budget
+  (`src/characters.ts`) as a player-directed allocation — the archetype
+  cards become saved builds over the same spend.
 - Steampunk theming pass: real meshes, names, palette (see Design direction).
 - Save/resume via seed + action log (determinism makes this cheap).
 - Fuller audio beyond footsteps: combat sounds, ambience.

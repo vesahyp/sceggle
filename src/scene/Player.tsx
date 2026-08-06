@@ -21,7 +21,8 @@ import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
 
-const SPEED = 5;
+/** Fallback move speed — real runs carry the archetype's on `entity.moveSpeed`. */
+const BASE_SPEED = 5;
 const BODY_Y = 0.65; // render height above the floor plane (sim is 2D)
 const CAM_OFFSET = new Vector3(0, 12, 8); // top-down, tilted for a 2.5D feel
 
@@ -149,6 +150,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     // --- Movement (touch stick or held keys → velocity; the sim
     //     integrates it). Touch is analog: half deflection walks. During
     //     hit-stun the incoming knockback owns the velocity — no steering.
+    const SPEED = entity.moveSpeed ?? BASE_SPEED;
     if ((entity.stun ?? 0) <= 0) {
       if (touch.move.active) {
         vel.x = touch.move.x * SPEED;
@@ -285,7 +287,7 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     <group ref={group}>
       <mesh ref={body} castShadow>
         <capsuleGeometry args={[0.35, 0.6, 8, 16]} />
-        <meshStandardMaterial ref={bodyMat} color="#4ea1ff" transparent />
+        <meshStandardMaterial ref={bodyMat} color={entity.tint ?? '#4ea1ff'} transparent />
       </mesh>
       {/* Pivot rotates to the aim and sweeps on swing. Ranged holds the gun
           mesh; melee holds no weapon — just the strike bolt out at reach,
