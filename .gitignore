@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-ssr
+.sim-check
 *.local
 .DS_Store
 .playwright-mcp
