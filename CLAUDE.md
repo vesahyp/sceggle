@@ -24,8 +24,11 @@ for what to build next.
 ```
 src/
   ecs.ts        Miniplex world + the Entity type (the component vocabulary)
+  rng.ts        Seeding the shared rot.js stream (hash + warm-up; seed here,
+                never ROT.RNG.setSeed directly)
   weapons.ts    Point-budget weapon generation (no hardcoded weapons)
-  worldmap.ts   Open-overworld generation (entry/exit) + circle-vs-grid collision
+  worldmap.ts   Overworld generation — open ground with rolled layout
+                archetypes + an arena spine — and circle-vs-grid collision
   systems.ts    Simulation tick over ECS queries: perception, AI, movement,
                 shared melee swings + projectiles, loot, area exit
   events.ts     One-way sim → React bridge (deaths, pickups, damage, exit)
