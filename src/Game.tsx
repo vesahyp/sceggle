@@ -187,6 +187,25 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
   /** Power tier of dropped mechanism parts, creeping up with depth. */
   const partTier = Math.max(1, Math.min(4, Math.ceil(area / 2)));
 
+  /**
+   * Split one point of behaviour budget three ways. Shares, not independent
+   * rolls: a mob that is very aggressive has little left to spend on caution
+   * or patience, so the horde comes out as a mix of recognisable temperaments
+   * rather than everyone landing near the middle. Two cuts of a unit line is
+   * a uniform sample over the simplex — the cheapest fair way to do it.
+   */
+  const rollTraits = () => {
+    const a = ROT.RNG.getUniform();
+    const b = ROT.RNG.getUniform();
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    return {
+      aggression: +lo.toFixed(3),
+      caution: +(hi - lo).toFixed(3),
+      patience: +(1 - hi).toFixed(3),
+    };
+  };
+
   /** Random floor cell near a pack's center (packs arrive as groups). */
   const near = (center: { x: number; z: number }) => {
     const close = candidates.filter((c) => Math.hypot(c.x - center.x, c.z - center.z) < 4);
@@ -252,6 +271,7 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
     vel: { x: 0, z: 0 },
     radius: 0.28 + 0.04 * (s.level - 1),
     brain: {
+      traits: rollTraits(),
       // Half the pack circles each way, so a group surrounds you instead of
       // sweeping around one side together.
       strafe: ROT.RNG.getUniform() < 0.5 ? -1 : 1,

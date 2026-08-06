@@ -20,6 +20,13 @@ import {
   resolveSteering,
   type Steering,
 } from './steering';
+import {
+  chooseIntent,
+  driveFor,
+  searchPace,
+  searchPersistence,
+  standoffInner,
+} from './utility';
 import type { MechanismDef, WeaponDef } from './weapons';
 import { emitGameEvent } from './events';
 
@@ -57,19 +64,8 @@ const WALL_DANGER = 1;
 const CROWD_DANGER = 0.55;
 /** Body-radii multiple within which neighbours are worth avoiding. */
 const CROWD_RANGE = 2.6;
-/** Weight of the orbit desire relative to closing (1). Below 1 so a mob
- *  still closes while it circles, spiralling in rather than ringing around
- *  at a fixed radius. */
-const ORBIT_WEIGHT = 0.75;
-/** Fraction of `attackRange` a mob will let the player get inside before it
- *  gives ground. The gap between this and 1 is the band it fights in. */
-const STANDOFF_INNER = 0.72;
-/** Multiple of `attackRange` at which orbiting starts to fade in. */
-const ORBIT_FADE = 1.7;
 /** How close counts as reaching a remembered position. */
 const SEARCH_ARRIVE = 0.6;
-/** Fraction of full speed a searching mob advances at — visibly not a charge. */
-const SEARCH_SPEED = 0.7;
 /** Radians/second the cone sweeps while looking around at the spot. */
 const SEARCH_SWEEP = 1.8;
 /** Seconds spent looking around before giving up, refreshed on every sighting. */
@@ -1066,37 +1062,52 @@ function updateEnemyAI(map: GameMap, delta: number): void {
       mob.aim.z = (pp.z - mob.pos.z) / dist;
     }
 
-    // Context steering: every desire votes on a ring of candidate headings,
-    // then the votes resolve into one. See steering.ts for why this shape
-    // rather than a chain of behaviours overwriting each other.
-    resetSteering(steer);
-
     const toX = dist > 1e-4 ? (pp.x - mob.pos.x) / dist : 0;
     const toZ = dist > 1e-4 ? (pp.z - mob.pos.z) / dist : 1;
     const stand = brain.attackRange;
+    const traits = brain.traits;
 
-    // Hold a band around the preferred fighting distance: close from outside
-    // it, give ground from well inside it, and neither in between.
-    if (dist > stand) {
+    // Decide what this mob WANTS before working out which way that is. The
+    // scorers live in utility.ts; the traits weighting them were rolled at
+    // spawn, which is where "rusher" and "skirmisher" come from.
+    resetSteering(steer);
+    const crowd = addCrowdDanger(steer, grid, mob);
+    const inner = standoffInner(traits);
+    brain.intent = chooseIntent(
+      traits,
+      {
+        range: dist / stand,
+        health: mob.health ? mob.health.current / mob.health.max : 1,
+        allies: crowd.allies,
+        ready: brain.attackIn <= 0,
+      },
+      inner,
+      brain.intent,
+    );
+    const drive = driveFor(brain.intent, traits);
+
+    // Radial desire: close, give ground, or neither.
+    if (drive.toAllies && crowd.allies > 0) {
+      addInterest(steer, crowd.centroidX - mob.pos.x, crowd.centroidZ - mob.pos.z, 1);
+    } else if (drive.radial > 0) {
       // Follow the shared field toward the player. It has nothing to say when
       // the mob is already in the player's cell or is walled off from them —
       // then just lean at the player and let danger handle the geometry.
       const flow = flowAt(chase, worldToCell(mob.pos.x), worldToCell(mob.pos.z));
       if (flow.x !== 0 || flow.z !== 0) addInterest(steer, flow.x, flow.z, 1);
       else addInterest(steer, toX, toZ, 1);
-    } else if (dist < stand * STANDOFF_INNER) {
+    } else if (drive.radial < 0) {
       addInterest(steer, -toX, -toZ, 1);
     }
 
-    // Orbit, fading in as the mob reaches its band. This is what stops a
-    // pack from arriving and standing still: in range, circling IS the move.
-    const orbit = Math.min(1, Math.max(0, (stand * ORBIT_FADE - dist) / (stand * (ORBIT_FADE - 1))));
-    if (orbit > 0) {
-      addInterest(steer, -toZ * brain.strafe, toX * brain.strafe, ORBIT_WEIGHT * orbit);
+    // Lateral desire: circling, which is what keeps a mob in range from
+    // simply standing there.
+    if (drive.lateral > 0) {
+      addInterest(steer, -toZ * brain.strafe, toX * brain.strafe, drive.lateral);
     }
 
-    // Bodies and terrain are what to avoid while doing all that.
-    addCrowdDanger(steer, grid, mob);
+    // Terrain is what to avoid while doing all that (bodies already voted,
+    // above — the crowd survey and the crowd danger are the same scan).
     addWallDanger(steer, map, mob.pos.x, mob.pos.z, mob.radius ?? DEFAULT_RADIUS, WALL_LOOKAHEAD, WALL_DANGER);
 
     const dir = resolveSteering(steer);
@@ -1107,15 +1118,28 @@ function updateEnemyAI(map: GameMap, delta: number): void {
 }
 
 /**
- * Neighbouring bodies push a heading away, hardest when they're touching.
+ * One pass over a mob's neighbours doing two jobs: bodies push a heading
+ * away (hardest when touching), and the same scan reports who's around so
+ * the utility layer can tell an isolated mob from one in a pack.
+ *
  * This is the anticipatory half of crowd handling — `separateMobs` still
  * resolves actual overlap after the fact, but steering around a neighbour
  * beforehand is what makes a pack fan out instead of piling into one lane.
  */
-function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): void {
+interface CrowdSurvey {
+  allies: number;
+  centroidX: number;
+  centroidZ: number;
+}
+const crowdSurvey: CrowdSurvey = { allies: 0, centroidX: 0, centroidZ: 0 };
+
+function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): CrowdSurvey {
   const cx = worldToCell(mob.pos.x);
   const cz = worldToCell(mob.pos.z);
   const reach = (mob.radius ?? DEFAULT_RADIUS) * CROWD_RANGE;
+  let allies = 0;
+  let sumX = 0;
+  let sumZ = 0;
   for (let z = cz - 1; z <= cz + 1; z++) {
     for (let x = cx - 1; x <= cx + 1; x++) {
       const bucket = grid.get(z * 4096 + x);
@@ -1125,11 +1149,20 @@ function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): void {
         const dx = other.pos.x - mob.pos.x;
         const dz = other.pos.z - mob.pos.z;
         const d = Math.hypot(dx, dz);
+        // Company is counted over the whole 3×3 lookup; only bodies close
+        // enough to collide with are worth steering around.
+        allies++;
+        sumX += other.pos.x;
+        sumZ += other.pos.z;
         if (d >= reach || d < 1e-4) continue;
         addDanger(steer, dx, dz, CROWD_DANGER * (1 - d / reach));
       }
     }
   }
+  crowdSurvey.allies = allies;
+  crowdSurvey.centroidX = allies > 0 ? sumX / allies : mob.pos.x;
+  crowdSurvey.centroidZ = allies > 0 ? sumZ / allies : mob.pos.z;
+  return crowdSurvey;
 }
 
 /**
@@ -1139,7 +1172,7 @@ function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): void {
  */
 function rememberPlayer(brain: NonNullable<Entity['brain']>, x: number, z: number): void {
   brain.alert = 1;
-  brain.searchLook = SEARCH_LOOK;
+  brain.searchLook = SEARCH_LOOK * searchPersistence(brain.traits);
   if (brain.lastSeen) {
     brain.lastSeen.x = x;
     brain.lastSeen.z = z;
@@ -1179,8 +1212,9 @@ function searchLastSeen(
     addWallDanger(steer, map, mob.pos.x, mob.pos.z, mob.radius ?? DEFAULT_RADIUS, WALL_LOOKAHEAD, WALL_DANGER);
     const dir = resolveSteering(steer);
     // Advancing on a guess, not charging a target — the slower approach is
-    // also the tell that it has lost you.
-    const speed = (mob.moveSpeed ?? MOB_SPEED) * SEARCH_SPEED;
+    // also the tell that it has lost you. How much slower is the mob's own
+    // aggression: some push straight in, some creep.
+    const speed = (mob.moveSpeed ?? MOB_SPEED) * searchPace(brain.traits);
     mob.vel.x = dir.x * speed;
     mob.vel.z = dir.z * speed;
     if (mob.aim && (dir.x !== 0 || dir.z !== 0)) {

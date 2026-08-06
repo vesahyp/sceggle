@@ -1,5 +1,6 @@
 import { World } from 'miniplex';
 import type { MechanismDef, WeaponDef } from './weapons';
+import type { Intent, Traits } from './utility';
 
 /**
  * The Entity is the whole game-object vocabulary in one place. Every field is
@@ -188,6 +189,13 @@ export interface Entity {
    * you the time it takes them to check the spot and give up.
    */
   brain?: {
+    /** Behavioural dials rolled at spawn as shares of one budget. Everything
+     *  from how close it fights to whether it breaks off when hurt derives
+     *  from these — see utility.ts. */
+    traits: Traits;
+    /** What it decided to do this tick (utility.chooseIntent). Kept between
+     *  ticks so the choice can favour continuing over switching. */
+    intent?: Intent;
     /** Which way this mob circles its target: +1 or -1, rolled at spawn so a
      *  pack splits both ways around you instead of orbiting in lockstep. */
     strafe: number;
