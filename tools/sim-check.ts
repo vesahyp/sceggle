@@ -25,7 +25,8 @@ declare const process: { exitCode?: number };
 import * as ROT from 'rot-js';
 import { world, type Entity } from '../src/ecs';
 import { generateWorldMap, cellToWorld, circleOverlapsWall } from '../src/worldmap';
-import { stepSimulation } from '../src/systems';
+import { stepSimulation, setAttackTokens } from '../src/systems';
+import { generateWeapon } from '../src/weapons';
 
 let fails = 0;
 const check = (name: string, ok: boolean, extra = '') => {
@@ -33,8 +34,12 @@ const check = (name: string, ok: boolean, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`);
 };
 
+/** Clear the world and restore per-area sim state. The token pool is module
+ *  state in systems.ts, so without resetting it here a case would inherit
+ *  whatever the previous one set and pass or fail for the wrong reason. */
 function reset(seed: number) {
   for (const e of [...world.entities]) world.remove(e);
+  setAttackTokens(3);
   ROT.RNG.setSeed(seed);
   return generateWorldMap(64, 64, seed);
 }
@@ -63,6 +68,9 @@ function makeMob(x: number, z: number, over: Partial<NonNullable<Entity['brain']
       lastSeen: undefined,
       attackRange: 1.2,
       attackIn: 0,
+      token: false,
+      tokenHold: 0,
+      tokenCool: 0,
       stagger: 0,
       wanderIn: 1,
       ...over,
@@ -357,36 +365,66 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   const map = reset(2468);
   const open = openCell(map, 8);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+  p.health!.current = 1e9; // this case is about temperament, not survival
+  p.health!.max = 1e9;
 
-  const rusher = makeMob(p.pos!.x + 8, p.pos!.z, {
-    traits: { aggression: 0.9, caution: 0.05, patience: 0.05 },
-    hearing: 999,
-  });
-  const skirmisher = makeMob(p.pos!.x, p.pos!.z + 8, {
-    traits: { aggression: 0.1, caution: 0.8, patience: 0.1 },
-    hearing: 999,
-  });
-  const sniper = makeMob(p.pos!.x - 8, p.pos!.z, {
-    traits: { aggression: 0.05, caution: 0.05, patience: 0.9 },
-    hearing: 999,
-  });
+  const armed = (m: Entity) => {
+    m.weapon = generateWeapon('melee', 1, 5);
+    return m;
+  };
+  const rusher = armed(
+    makeMob(p.pos!.x + 8, p.pos!.z, {
+      traits: { aggression: 0.9, caution: 0.05, patience: 0.05 },
+      hearing: 999,
+    }),
+  );
+  const skirmisher = armed(
+    makeMob(p.pos!.x, p.pos!.z + 8, {
+      traits: { aggression: 0.1, caution: 0.8, patience: 0.1 },
+      hearing: 999,
+    }),
+  );
+  const circler = armed(
+    makeMob(p.pos!.x - 8, p.pos!.z, {
+      traits: { aggression: 0.05, caution: 0.05, patience: 0.9 },
+      hearing: 999,
+    }),
+  );
 
-  run(map, 60 * 8);
+  // Sample over a window, not one frame: intents cycle as tokens come and
+  // go, so a single-frame reading is a coin toss.
+  let circlerOrbit = 0;
+  let rusherOrbit = 0;
+  let circlerSum = 0;
+  let rusherSum = 0;
+  const FRAMES = 60 * 8;
+  for (let i = 0; i < FRAMES; i++) {
+    stepSimulation(map, 1 / 60);
+    if (circler.brain!.intent === 'orbit') circlerOrbit++;
+    if (rusher.brain!.intent === 'orbit') rusherOrbit++;
+    circlerSum += dist(circler, p);
+    rusherSum += dist(rusher, p);
+  }
   console.log(
-    `    intents: rusher=${rusher.brain!.intent} skirmisher=${skirmisher.brain!.intent} sniper=${sniper.brain!.intent}`,
+    `    orbit frames: circler=${circlerOrbit} rusher=${rusherOrbit}; ` +
+      `mean range: circler=${(circlerSum / FRAMES).toFixed(2)} rusher=${(rusherSum / FRAMES).toFixed(2)}`,
   );
   check(
     'traits: all three engage from range',
-    [rusher, skirmisher, sniper].every((m) => dist(m, p) < 4),
-    [rusher, skirmisher, sniper].map((m) => dist(m, p).toFixed(1)).join(' '),
+    [rusher, skirmisher, circler].every((m) => dist(m, p) < 4),
+    [rusher, skirmisher, circler].map((m) => dist(m, p).toFixed(1)).join(' '),
   );
   // The patient one plants to shoot where the others keep circling. Without
   // this, `hold` scores below `orbit` for every possible trait roll and the
   // intent is dead code that still looks like a feature.
+  // Not asserted: raw orbit-frame counts. They read backwards — the
+  // aggressive mob reaches its band sooner and therefore spends MORE frames
+  // circling in it. Mean range is the unconfounded signal for how the two
+  // temperaments differ.
   check(
-    'traits: the patient one plants, the others circle',
-    sniper.brain!.intent === 'hold' && rusher.brain!.intent !== 'hold',
-    `sniper=${sniper.brain!.intent} rusher=${rusher.brain!.intent}`,
+    'traits: the aggressive one fights closer in',
+    rusherSum / FRAMES < circlerSum / FRAMES,
+    `mean range rusher=${(rusherSum / FRAMES).toFixed(2)} circler=${(circlerSum / FRAMES).toFixed(2)}`,
   );
 
   // Hurt them and let temperament decide what happens next.
@@ -431,6 +469,81 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
     'traits: no temperament dominates the roll',
     counts.every((c) => c > rolled.length * 0.15),
     counts.join('/'),
+  );
+}
+
+// --- 13. Attack tokens: a big pack takes turns instead of all swinging.
+{
+  const map = reset(31337);
+  const open = openCell(map, 6);
+  const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+  p.health!.current = 1e9; // survive the pack; this case is about cadence
+  p.health!.max = 1e9;
+
+  const TOKENS = 3;
+  setAttackTokens(TOKENS);
+
+  const pack = Array.from({ length: 20 }, (_, i) => {
+    const a = (i / 20) * Math.PI * 2;
+    const m = makeMob(p.pos!.x + Math.sin(a) * 5, p.pos!.z + Math.cos(a) * 5, {
+      hearing: 999,
+      strafe: i % 2 === 0 ? 1 : -1,
+    });
+    m.weapon = generateWeapon('melee', 1, 5);
+    return m;
+  });
+
+  let peakSwinging = 0;
+  let peakTokens = 0;
+  const swung = new Set<Entity>();
+  for (let i = 0; i < 60 * 20; i++) {
+    stepSimulation(map, 1 / 60);
+    const swinging = pack.filter((m) => m.attack);
+    peakSwinging = Math.max(peakSwinging, swinging.length);
+    peakTokens = Math.max(peakTokens, pack.filter((m) => m.brain!.token).length);
+    for (const m of swinging) swung.add(m);
+  }
+
+  console.log(`    tokens=${TOKENS} peak swinging=${peakSwinging} distinct attackers=${swung.size}/20`);
+  check(
+    'tokens: never more swinging at once than there are tokens',
+    peakSwinging <= TOKENS,
+    `peak ${peakSwinging}`,
+  );
+  check('tokens: never more granted than the pool', peakTokens <= TOKENS, `peak ${peakTokens}`);
+  check(
+    'tokens: the turn goes round the pack',
+    swung.size >= 8,
+    `${swung.size} of 20 got a swing in`,
+  );
+  check(
+    'tokens: waiting mobs stay engaged, not parked',
+    pack.filter((m) => dist(m, p) < 4).length >= 12,
+    `${pack.filter((m) => dist(m, p) < 4).length} within 4 units`,
+  );
+}
+
+// --- 14. Tokens are recounted from live mobs, so deaths can't leak them.
+{
+  const map = reset(4711);
+  const open = openCell(map, 6);
+  const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+  setAttackTokens(2);
+  const pack = Array.from({ length: 6 }, (_, i) => {
+    const a = (i / 6) * Math.PI * 2;
+    const m = makeMob(p.pos!.x + Math.sin(a) * 1.5, p.pos!.z + Math.cos(a) * 1.5, { hearing: 999 });
+    m.weapon = generateWeapon('melee', 1, 5);
+    return m;
+  });
+  run(map, 60 * 2);
+  // Kill whoever holds a turn, mid-swing if possible.
+  for (const m of pack.filter((m) => m.brain!.token)) world.remove(m);
+  run(map, 60 * 3);
+  const live = pack.filter((m) => world.has(m));
+  check(
+    'tokens: survive holders dying',
+    live.some((m) => m.brain!.token),
+    `${live.filter((m) => m.brain!.token).length} held by ${live.length} survivors`,
   );
 }
 

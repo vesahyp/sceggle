@@ -12,16 +12,21 @@
  * already has five. And because the scores are just numbers weighted by three
  * per-mob traits, archetypes fall out of the spawn roll instead of a
  * hardcoded roster — a high-aggression mob rushes, a cautious one skirmishes
- * and breaks off when hurt, a patient one plants and shoots, with no code
- * anywhere that knows what a "rusher" is.
+ * and breaks off when hurt, a patient one circles wide and commits late, with
+ * no code anywhere that knows what a "rusher" is.
+ *
+ * There is deliberately no "stand still and shoot" intent. Attacking is not a
+ * movement commitment for either side (see ROADMAP's design direction) — a
+ * mob that plants to swing is a mob you can't kite, which is the whole game.
+ * Range archetypes come from `attackRange`, not from standing still.
  *
  * Pure arithmetic: no RNG, no ECS, no map. Deterministic by construction.
  */
 
 /** What a mob is trying to do. */
-export type Intent = 'close' | 'orbit' | 'hold' | 'retreat' | 'regroup';
+export type Intent = 'close' | 'orbit' | 'retreat' | 'regroup';
 
-export const INTENTS: readonly Intent[] = ['close', 'orbit', 'hold', 'retreat', 'regroup'];
+export const INTENTS: readonly Intent[] = ['close', 'orbit', 'retreat', 'regroup'];
 
 /**
  * The three dials a mob's behaviour hangs off, rolled at spawn as shares of
@@ -33,7 +38,7 @@ export interface Traits {
   aggression: number;
   /** Keeps a wider berth, breaks off when hurt, dislikes being alone. */
   caution: number;
-  /** Favours circling and planted shots over committing. */
+  /** Circles wide and commits late rather than diving in. */
   patience: number;
 }
 
@@ -46,9 +51,18 @@ export interface Facts {
   health: number;
   /** Allies close enough to count as company. */
   allies: number;
-  /** Is the weapon off cooldown? */
-  ready: boolean;
+  /** Does it hold one of the area's attack tokens? Without a turn there is
+   *  nothing to be gained by crowding in, so it circles and waits. */
+  hasToken: boolean;
 }
+
+/** How much a mob without a turn still wants to close. Not zero: it has to
+ *  get near enough to be worth a token in the first place, or the queue
+ *  deadlocks with everyone hanging back out of range. */
+const WAIT_CLOSE = 0.45;
+/** How much more a mob without a turn wants to circle. Waiting should look
+ *  like prowling, not like standing in line. */
+const WAIT_ORBIT = 1.35;
 
 /** How wide the "at my range" bell is, in multiples of the preferred range. */
 const BAND_WIDTH = 0.85;
@@ -74,21 +88,13 @@ export function score(intent: Intent, t: Traits, f: Facts, standoffInner: number
     // The floor matters: a mob with no aggression at all still has to engage,
     // or it stands at range forever and the fight never happens.
     case 'close':
-      return clamp01(f.range - 1) * (0.5 + t.aggression);
+      return clamp01(f.range - 1) * (0.5 + t.aggression) * (f.hasToken ? 1 : WAIT_CLOSE);
 
     // Circling is what you do once you have arrived. Patient mobs prefer it
     // to committing, but everyone does it a bit — standing still in a horde
     // shooter reads as broken.
     case 'orbit':
-      return atBand(f.range) * (0.25 + t.patience * 0.7);
-
-    // Planting to shoot. The coefficients matter more than they look: hold
-    // only ever beats orbit for a patient mob whose weapon is loaded, so a
-    // long-range roll plants for the shot and shuffles while it reloads,
-    // while everyone else keeps circling. Raise them and the whole horde
-    // stands still; lower them and this intent can never win at all.
-    case 'hold':
-      return atBand(f.range) * t.patience * (f.ready ? 1.15 : 0.15);
+      return atBand(f.range) * (0.25 + t.patience * 0.7) * (f.hasToken ? 1 : WAIT_ORBIT);
 
     // Two reasons to give ground: shoved inside the band (everyone), or hurt
     // and careful about it (the skirmisher's exit).
@@ -151,8 +157,6 @@ export function driveFor(intent: Intent, t: Traits): Drive {
       return { radial: 1, lateral: 0.2 + t.patience * 0.5 };
     case 'orbit':
       return { radial: 0, lateral: 1 };
-    case 'hold':
-      return { radial: 0, lateral: 0 };
     case 'retreat':
       return { radial: -1, lateral: 0.3 + t.patience * 0.4 };
     case 'regroup':
