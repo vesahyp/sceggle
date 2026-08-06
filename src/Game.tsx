@@ -252,10 +252,9 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
     vel: { x: 0, z: 0 },
     radius: 0.28 + 0.04 * (s.level - 1),
     brain: {
-      path: [],
-      // Spread the A* recomputes across frames so a horde doesn't repath
-      // in lockstep.
-      repathIn: ROT.RNG.getUniform() * 0.25,
+      // Half the pack circles each way, so a group surrounds you instead of
+      // sweeping around one side together.
+      strafe: ROT.RNG.getUniform() < 0.5 ? -1 : 1,
       // Vision varies per mob: cone length and width are individual rolls
       // (capped under the player's 7-unit vision, so you can spot them
       // first), and hearing is short — slipping behind a mob is a real
@@ -264,17 +263,16 @@ function spawnMobs(map: GameMap, area: number, blockedCells: Set<string>, seed: 
       fov: s.fov ?? +(0.5 + ROT.RNG.getUniform() * 0.6).toFixed(2),
       hearing: s.hearing ?? +(2.5 + ROT.RNG.getUniform() * 1.5).toFixed(1),
       alerted: false,
-      // Melee walks up to swing reach; ranged stands off inside gun range;
-      // exploders push in to fuse range; spawners never move.
-      attackRange: s.spawner
-        ? 9999
-        : s.volatile
-          ? 0.4
-          : s.weapon
-            ? s.weapon.kind === 'melee'
-              ? s.weapon.reach * 0.9
-              : s.weapon.reach * 0.6
-            : 1,
+      // The band each fights in: melee circles at swing reach, ranged holds
+      // off inside gun range, exploders push in to fuse range. Spawners have
+      // no say — speed 0 pins them wherever they stand.
+      attackRange: s.volatile
+        ? 0.4
+        : s.weapon
+          ? s.weapon.kind === 'melee'
+            ? s.weapon.reach * 0.9
+            : s.weapon.reach * 0.6
+          : 1,
       attackIn: 0,
       stagger: 0,
       wanderTarget: undefined,
