@@ -348,9 +348,17 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   const map = reset(111);
   const open = openCell(map, 6);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
-  // Far enough away that nothing perceives the player.
-  const hit = makeMob(p.pos!.x + 25, p.pos!.z, { sight: 4, fov: 0.5, hearing: 2, alert: 0 });
-  const mate = makeMob(p.pos!.x + 27, p.pos!.z, { sight: 4, fov: 0.5, hearing: 2, alert: 0 });
+  // Far enough away that nothing perceives the player — and on verified-open
+  // floor, not a fixed offset: what terrain sits 25 units east is the
+  // layout roll's business, and a mob spawned inside rock eats the test
+  // shot with its wall cell.
+  const spot = map.floors.find(
+    (f) =>
+      Math.hypot(cellToWorld(f.x) - p.pos!.x, cellToWorld(f.z) - p.pos!.z) > 20 &&
+      !circleOverlapsWall(map, cellToWorld(f.x), cellToWorld(f.z), 2.5),
+  )!;
+  const hit = makeMob(cellToWorld(spot.x), cellToWorld(spot.z), { sight: 4, fov: 0.5, hearing: 2, alert: 0 });
+  const mate = makeMob(cellToWorld(spot.x) + 2, cellToWorld(spot.z), { sight: 4, fov: 0.5, hearing: 2, alert: 0 });
   run(map, 6);
   check('hit: quiet before the shot', hit.brain!.alert === 0 && mate.brain!.alert === 0);
 
@@ -538,13 +546,16 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   run(map, 60 * 2);
   // Kill whoever holds a turn, mid-swing if possible.
   for (const m of pack.filter((m) => m.brain!.token)) world.remove(m);
-  run(map, 60 * 3);
+  // The pool must flow back to the survivors. Sampled over a window, not at
+  // one end-instant: tokens legitimately sit unheld during the between-turns
+  // cooldown, and where that gap falls depends on the ground under the fight.
+  let reacquired = false;
+  for (let i = 0; i < 60 * 3; i++) {
+    stepSimulation(map, 1 / 60);
+    if (pack.some((m) => world.has(m) && m.brain!.token)) reacquired = true;
+  }
   const live = pack.filter((m) => world.has(m));
-  check(
-    'tokens: survive holders dying',
-    live.some((m) => m.brain!.token),
-    `${live.filter((m) => m.brain!.token).length} held by ${live.length} survivors`,
-  );
+  check('tokens: survive holders dying', reacquired, `${live.length} survivors`);
 }
 
 console.log(fails === 0 ? '\nALL SIM CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
