@@ -2,15 +2,16 @@
   "name": "sceggle",
   "version": "2.0.0-alpha.0",
   "private": true,
-  "description": "A top-down hack-slash-loot — three.js + Miniplex + rot.js",
+  "description": "A top-down hack-slash-loot \u2014 three.js + Miniplex + rot.js",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sim-check": "vite build --ssr tools/sim-check.ts --outDir .sim-check --logLevel error && node .sim-check/sim-check.js"
   },
-  "author": "Vesa Hyppönen <vesa.hypponen@gmail.com> (https://github.com/vesahyp)",
+  "author": "Vesa Hypp\u00f6nen <vesa.hypponen@gmail.com> (https://github.com/vesahyp)",
   "license": "MIT",
   "engines": {
     "node": ">=24"

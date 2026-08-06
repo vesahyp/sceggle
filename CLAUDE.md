@@ -67,9 +67,15 @@ legacy/         Original 2016 code — reference only, don't extend
 
 - Dev: `npm run dev` (http://localhost:5173).
 - **Verify before committing:** `npm run typecheck` and `npm run build` must
-  pass. When practical, smoke-test the runtime (load the dev server in a
-  headless browser and confirm the canvas mounts with no console errors) —
-  a green build doesn't prove the scene renders.
+  pass. If you touched the sim (`systems.ts`, `worldmap.ts`, `flowfield.ts`,
+  `steering.ts`, `ecs.ts`), `npm run sim-check` must pass too — it drives the
+  real `stepSimulation` headlessly over a generated map and asserts on
+  behaviour (mobs path, hold their range, surround, remember, forget, and
+  replay identically for a seed). Add a case there when you add a mechanic.
+- Smoke-testing in a browser is worth doing when you touched the *view*, but
+  note it can't check the sim: R3F's `useFrame` does not run under headless
+  Chromium in the CI/agent sandbox, so the canvas mounts clean while nothing
+  ticks. Treat "no console errors" as evidence about rendering only.
 - Keep changes scoped to one roadmap item per PR. Delete the item from
   `ROADMAP.md` as part of the change — don't archive it in a "Done" section.
   `ROADMAP.md` is forward-looking only; git history is the record of what
