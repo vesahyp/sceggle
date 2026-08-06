@@ -38,10 +38,15 @@ src/
   flowfield.ts  One Dijkstra expansion from the player; every mob samples the
                 gradient instead of running its own A*
   events.ts     One-way sim → React bridge (deaths, pickups, damage, exit)
-  input.ts      Keyboard: held state + edge-triggered presses
+  input.ts      Keyboard: held state + edge-triggered presses (ignores form fields)
+  characters.ts Character archetypes — preset spends of one point budget +
+                the seeded starter-gun roll
   scene/        R3F render components (Terrain, Player, Mob, Weapon, HealthBar,
                 Projectiles, Loot, DamageNumbers, Vision, Simulation)
-  App.tsx       Areas, mob spawning (point pools), HUD; wires scene + input
+  Game.tsx      One run: areas, mob spawning (point pools), HUD strip, the
+                pause overlay (pack + help); wires scene + input
+  Menu.tsx      Title screen, character/seed select, in-run pause overlay
+  App.tsx       Shell state machine: title ↔ select ↔ game; owns pause
 tools/
   sim-check.ts  `npm run sim-check` — behavioural checks against the real sim
 public/         tracker.js + t.gif — self-hosted analytics (see TRACKING.md)
