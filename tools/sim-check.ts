@@ -49,6 +49,9 @@ function makeMob(x: number, z: number, over: Partial<NonNullable<Entity['brain']
     aim: { x: 0, z: 1 },
     health: { current: 10, max: 10 },
     brain: {
+      // Balanced by default so cases that aren't about temperament aren't
+      // secretly testing one.
+      traits: { aggression: 0.34, caution: 0.33, patience: 0.33 },
       strafe: 1,
       sight: 6,
       fov: 0.8,
@@ -106,6 +109,16 @@ function shoot(map: ReturnType<typeof generateWorldMap>, target: Entity, damage 
   for (let i = 0; i < 10; i++) stepSimulation(map, 1 / 60);
 }
 
+/** The most open floor cell available, preferring `want` units of clearance
+ *  but settling for less rather than depending on a lucky seed. */
+function openCell(map: ReturnType<typeof generateWorldMap>, want: number): { x: number; z: number } {
+  for (let r = want; r >= 1; r -= 0.5) {
+    const c = map.floors.find((f) => !circleOverlapsWall(map, cellToWorld(f.x), cellToWorld(f.z), r));
+    if (c) return c;
+  }
+  return map.floors[0];
+}
+
 const dist = (a: Entity, b: Entity) => Math.hypot(a.pos!.x - b.pos!.x, a.pos!.z - b.pos!.z);
 const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   for (let i = 0; i < ticks; i++) stepSimulation(map, 1 / 60);
@@ -150,9 +163,7 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   const map = reset(4242);
   // Fight in the open — the entry cell hugs the map edge, where wall danger
   // would legitimately distort the band.
-  const open = map.floors.find((c) =>
-    !circleOverlapsWall(map, cellToWorld(c.x), cellToWorld(c.z), 4),
-  )!;
+  const open = openCell(map, 4);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
   const m = makeMob(p.pos!.x + 1.2, p.pos!.z, { attackRange: 1.2, hearing: 999 });
   run(map, 30);
@@ -274,7 +285,7 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
 // --- 8. Memory: a mob commits to where the player WAS, not where they are.
 {
   const map = reset(808);
-  const open = map.floors.find((c) => !circleOverlapsWall(map, cellToWorld(c.x), cellToWorld(c.z), 5))!;
+  const open = openCell(map, 5);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
   const m = makeMob(p.pos!.x + 4, p.pos!.z, { sight: 8, fov: Math.PI, hearing: 2, alert: 0 });
   m.aim!.x = -1;
@@ -311,7 +322,7 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
 // --- 9. Sustained sight keeps a mob hunting (no flicker at the sight edge).
 {
   const map = reset(909);
-  const open = map.floors.find((c) => !circleOverlapsWall(map, cellToWorld(c.x), cellToWorld(c.z), 5))!;
+  const open = openCell(map, 5);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
   const m = makeMob(p.pos!.x + 3, p.pos!.z, { sight: 8, fov: Math.PI, hearing: 2, alert: 0 });
   m.aim!.x = -1;
@@ -327,7 +338,7 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
 // --- 10. Being hit rouses the mob and its packmates, but as memory.
 {
   const map = reset(111);
-  const open = map.floors.find((c) => !circleOverlapsWall(map, cellToWorld(c.x), cellToWorld(c.z), 6))!;
+  const open = openCell(map, 6);
   const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
   // Far enough away that nothing perceives the player.
   const hit = makeMob(p.pos!.x + 25, p.pos!.z, { sight: 4, fov: 0.5, hearing: 2, alert: 0 });
@@ -339,6 +350,88 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
   check('hit: the target is roused', hit.brain!.alert > 0.9 && !!hit.brain!.lastSeen);
   check('hit: nearby packmate surges too', mate.brain!.alert > 0.9);
   check('hit: rousing is memory, not sight', hit.brain!.perceives === false);
+}
+
+// --- 11. Traits produce visibly different temperaments from one code path.
+{
+  const map = reset(2468);
+  const open = openCell(map, 8);
+  const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+
+  const rusher = makeMob(p.pos!.x + 8, p.pos!.z, {
+    traits: { aggression: 0.9, caution: 0.05, patience: 0.05 },
+    hearing: 999,
+  });
+  const skirmisher = makeMob(p.pos!.x, p.pos!.z + 8, {
+    traits: { aggression: 0.1, caution: 0.8, patience: 0.1 },
+    hearing: 999,
+  });
+  const sniper = makeMob(p.pos!.x - 8, p.pos!.z, {
+    traits: { aggression: 0.05, caution: 0.05, patience: 0.9 },
+    hearing: 999,
+  });
+
+  run(map, 60 * 8);
+  console.log(
+    `    intents: rusher=${rusher.brain!.intent} skirmisher=${skirmisher.brain!.intent} sniper=${sniper.brain!.intent}`,
+  );
+  check(
+    'traits: all three engage from range',
+    [rusher, skirmisher, sniper].every((m) => dist(m, p) < 4),
+    [rusher, skirmisher, sniper].map((m) => dist(m, p).toFixed(1)).join(' '),
+  );
+  // The patient one plants to shoot where the others keep circling. Without
+  // this, `hold` scores below `orbit` for every possible trait roll and the
+  // intent is dead code that still looks like a feature.
+  check(
+    'traits: the patient one plants, the others circle',
+    sniper.brain!.intent === 'hold' && rusher.brain!.intent !== 'hold',
+    `sniper=${sniper.brain!.intent} rusher=${rusher.brain!.intent}`,
+  );
+
+  // Hurt them and let temperament decide what happens next.
+  for (const m of [rusher, skirmisher]) m.health!.current = 2; // 20%
+  const before = { rush: dist(rusher, p), skirm: dist(skirmisher, p) };
+  run(map, 60 * 4);
+  check(
+    'traits: the cautious one breaks off when hurt',
+    dist(skirmisher, p) > before.skirm + 1 && skirmisher.brain!.intent === 'retreat',
+    `${before.skirm.toFixed(1)} → ${dist(skirmisher, p).toFixed(1)} (${skirmisher.brain!.intent})`,
+  );
+  check(
+    'traits: the aggressive one does not',
+    dist(rusher, p) < before.rush + 1 && rusher.brain!.intent !== 'retreat',
+    `${before.rush.toFixed(1)} → ${dist(rusher, p).toFixed(1)} (${rusher.brain!.intent})`,
+  );
+}
+
+// --- 12. A pack rolled from one seed is a mix, not a monoculture.
+{
+  reset(13579);
+  const rollTraits = () => {
+    const a = ROT.RNG.getUniform();
+    const b = ROT.RNG.getUniform();
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    return { aggression: lo, caution: hi - lo, patience: 1 - hi };
+  };
+  const rolled = Array.from({ length: 200 }, rollTraits);
+  const sums = rolled.map((t) => t.aggression + t.caution + t.patience);
+  check('traits: budget always sums to 1', sums.every((s) => Math.abs(s - 1) < 1e-9));
+  const dominant = (t: ReturnType<typeof rollTraits>) =>
+    t.aggression >= t.caution && t.aggression >= t.patience
+      ? 'aggr'
+      : t.caution >= t.patience
+        ? 'caut'
+        : 'pati';
+  const spread = new Set(rolled.map(dominant));
+  const counts = ['aggr', 'caut', 'pati'].map((k) => rolled.filter((t) => dominant(t) === k).length);
+  check('traits: all three temperaments occur', spread.size === 3, counts.join('/'));
+  check(
+    'traits: no temperament dominates the roll',
+    counts.every((c) => c > rolled.length * 0.15),
+    counts.join('/'),
+  );
 }
 
 console.log(fails === 0 ? '\nALL SIM CHECKS PASSED' : `\n${fails} CHECK(S) FAILED`);
