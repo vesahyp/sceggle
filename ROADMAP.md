@@ -57,6 +57,11 @@ they land (git history is the changelog).
   implemented as preset spends of one shared character point budget
   (`src/characters.ts`); each constrains the seeded starter-gun roll, so
   the pick decides HOW you fight and the seed decides the numbers.
+- **In-run RPG progression:** kills pay XP (level², so elites matter); each
+  character level pauses for ONE point the player spends on the same ramps
+  the archetypes are built from — vigor, boots, plating, or hands (attack
+  rate, via the shared `rateScale` component both cadence gates honor).
+  Progression resets with the run; same seed + same picks → same run.
 - **Weapons are constructed, not just rolled:** guns roll fitting slots;
   **cogs** (mechanism parts) drop and install to change what an attack DOES
   — chain, scald, pull, corpse-burst, ricochet, split. Behaviors are shared

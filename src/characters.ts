@@ -37,15 +37,48 @@ export const CHARACTER_BUDGET = 12;
 const HP_RAMP = { base: 18, perPoint: 3 };
 const SPEED_RAMP = { base: 4.2, perPoint: 0.3 };
 const RESIST_PER_POINT = 0.09;
+/** Attack-cadence bonus per `hands` point (a level-up-only ramp — no
+ *  archetype starts with it; entity.rateScale = 1 + pts · this). */
+export const HANDS_PER_POINT = 0.08;
+/** Total plating points (archetype + leveled) stop here — 0.72 resist.
+ *  Past that shoves stop being a mechanic at all. */
+export const PLATING_CAP = 8;
 
-export const characterHp = (c: CharacterDef) =>
-  Math.round(HP_RAMP.base + c.spend.vigor * HP_RAMP.perPoint);
-export const characterSpeed = (c: CharacterDef) =>
-  +(SPEED_RAMP.base + c.spend.boots * SPEED_RAMP.perPoint).toFixed(1);
-export const characterResist = (c: CharacterDef) => {
-  const r = +(c.spend.plating * RESIST_PER_POINT).toFixed(2);
+/**
+ * In-run RPG progression: kills pay XP, each level grants ONE point spent by
+ * the player on the same ramps the archetypes are built from — a leveled
+ * character is a bigger spend of the same budget, so the freeform-allocation
+ * idea (see ROADMAP Someday) arrives through play. Deterministic: thresholds
+ * and stat values are fixed; the pick is player input, like equipping.
+ */
+export type StatKey = 'vigor' | 'boots' | 'plating' | 'hands';
+export type LevelSpend = Record<StatKey, number>;
+export const emptySpend = (): LevelSpend => ({ vigor: 0, boots: 0, plating: 0, hands: 0 });
+
+/** XP a kill pays — level², so an elite is worth a handful of chaff. */
+export const xpForKill = (mobLevel: number) => mobLevel * mobLevel;
+/** XP needed to clear the given level (consumed on level-up). */
+export const xpToNext = (level: number) => 20 + 18 * (level - 1);
+
+export const characterHp = (c: CharacterDef, extra?: LevelSpend) =>
+  Math.round(HP_RAMP.base + (c.spend.vigor + (extra?.vigor ?? 0)) * HP_RAMP.perPoint);
+export const characterSpeed = (c: CharacterDef, extra?: LevelSpend) =>
+  +(SPEED_RAMP.base + (c.spend.boots + (extra?.boots ?? 0)) * SPEED_RAMP.perPoint).toFixed(1);
+export const characterResist = (c: CharacterDef, extra?: LevelSpend) => {
+  const pts = Math.min(PLATING_CAP, c.spend.plating + (extra?.plating ?? 0));
+  const r = +(pts * RESIST_PER_POINT).toFixed(2);
   return { knockback: r, stagger: r };
 };
+export const characterRateScale = (extra?: LevelSpend) =>
+  +(1 + (extra?.hands ?? 0) * HANDS_PER_POINT).toFixed(2);
+
+/** The level-up card copy, per stat — deltas mirror the ramps above. */
+export const STAT_PICKS: Array<{ key: StatKey; name: string; effect: string }> = [
+  { key: 'vigor', name: 'Vigor', effect: `+${HP_RAMP.perPoint} max HP (and heals ${HP_RAMP.perPoint})` },
+  { key: 'boots', name: 'Boots', effect: `+${SPEED_RAMP.perPoint} move speed` },
+  { key: 'plating', name: 'Plating', effect: `+${Math.round(RESIST_PER_POINT * 100)}% shove & stun resist` },
+  { key: 'hands', name: 'Hands', effect: `+${Math.round(HANDS_PER_POINT * 100)}% attack rate, any gun` },
+];
 
 export const CHARACTERS: CharacterDef[] = [
   {

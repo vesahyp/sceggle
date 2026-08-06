@@ -48,6 +48,67 @@ body,
   color: #ff6b6b;
 }
 
+/* XP toward the next level, inline in the strip. */
+.xp-bar {
+  display: inline-block;
+  vertical-align: middle;
+  width: 44px;
+  height: 5px;
+  margin: 0 7px 0 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.xp-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #ffd166;
+}
+
+/* Level-up: one card per stat, click to spend the point. */
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.pick-card {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #3d4456;
+  background: rgba(42, 48, 64, 0.4);
+  font-size: 14px;
+}
+
+.pick-card:hover:not(:disabled),
+.pick-card:focus-visible {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.pick-card:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pick-effect {
+  font-size: 12px;
+  color: #c3cad9;
+}
+
+.pick-current {
+  font-size: 11px;
+  color: #8b93a7;
+}
+
 /* The pack: lives inside the pause overlay's Pack tab (the overlay panel
    provides the chrome; this is just the list). */
 .inventory {

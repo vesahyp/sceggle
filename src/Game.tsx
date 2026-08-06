@@ -10,8 +10,20 @@ import {
   type MechanismDef,
   type WeaponDef,
 } from './weapons';
-import { characterHp, characterResist, characterSpeed, rollStarterWeapon, type CharacterDef } from './characters';
-import { GameMenu, type GameMenuTab } from './Menu';
+import {
+  characterHp,
+  characterRateScale,
+  characterResist,
+  characterSpeed,
+  emptySpend,
+  rollStarterWeapon,
+  xpForKill,
+  xpToNext,
+  type CharacterDef,
+  type LevelSpend,
+  type StatKey,
+} from './characters';
+import { GameMenu, LevelUp, type GameMenuTab } from './Menu';
 import { Inventory } from './Inventory';
 import { TouchSticks } from './TouchSticks';
 import { initTouch } from './touch';
@@ -597,6 +609,7 @@ export function Game({
     tint: character.tint,
     moveSpeed: characterSpeed(character),
     resist: characterResist(character),
+    rateScale: 1,
     pos: { x: 0, z: 0 }, // placed at the area entry by the effect below
     vel: { x: 0, z: 0 },
     radius: 0.35,
@@ -654,6 +667,45 @@ export function Game({
   const playerWeapon = inventory.find((w) => w.id === equippedId) ?? inventory[0];
   useEffect(() => { playerEntity.weapon = playerWeapon; }, [playerWeapon, playerEntity]);
 
+  // In-run RPG progression: kills pay XP; crossing the threshold banks a
+  // level-up pick, which pauses the sim (like the pack) until spent. The
+  // pick lands on the same ramps the archetype's spend uses — the entity is
+  // re-derived from base + leveled points, so the sim reads it instantly.
+  const [xp, setXp] = useState(0);
+  const [level, setLevel] = useState(1);
+  const [pendingPicks, setPendingPicks] = useState(0);
+  const [spent, setSpent] = useState<LevelSpend>(emptySpend);
+  useEffect(() => {
+    if (xp < xpToNext(level)) return;
+    setXp((x) => x - xpToNext(level));
+    setLevel((l) => l + 1);
+    setPendingPicks((p) => p + 1);
+  }, [xp, level]);
+  // Dev hotkeys stay quiet while a pick is on screen (digits are card-adjacent).
+  const pendingRef = useRef(0);
+  useEffect(() => {
+    pendingRef.current = pendingPicks;
+  }, [pendingPicks]);
+
+  const applyPick = useCallback(
+    (key: StatKey) => {
+      const next = { ...spent, [key]: spent[key] + 1 };
+      // Mirror into the entity outside the setState updater (StrictMode
+      // double-invokes updaters; entity mutation must happen exactly once).
+      const h = playerEntity.health!;
+      const newMax = characterHp(character, next);
+      if (key === 'vigor') h.current = Math.min(newMax, h.current + (newMax - h.max));
+      h.max = newMax;
+      playerEntity.moveSpeed = characterSpeed(character, next);
+      playerEntity.resist = characterResist(character, next);
+      playerEntity.rateScale = characterRateScale(next);
+      setPlayerHp(h.current);
+      setSpent(next);
+      setPendingPicks((p) => p - 1);
+    },
+    [spent, character, playerEntity],
+  );
+
   // Kill-streak combo: kills within 2s of each other chain a multiplier.
   const [kills, setKills] = useState(0);
   const [combo, setCombo] = useState(0);
@@ -699,6 +751,7 @@ export function Game({
         if (e.type === 'mobDied') {
           setMobEntities((list) => list.filter((m) => m !== e.mob));
           setKills((k) => k + 1);
+          setXp((x) => x + xpForKill(e.mob.level ?? 1));
           const now = performance.now();
           const c = comboRef.current;
           c.n = now - c.last < 2000 ? c.n + 1 : 1;
@@ -732,11 +785,15 @@ export function Game({
       // dev: roll a fresh gun straight into hand / toss a random cog into
       // the satchel.
       Digit1: () => {
+        if (pendingRef.current > 0) return;
         const w = generateWeapon('ranged', area);
         setInventory((inv) => [...inv, w]);
         setEquippedId(w.id);
       },
-      Digit2: () => setParts((list) => [...list, generateMechanism(area)]),
+      Digit2: () => {
+        if (pendingRef.current > 0) return;
+        setParts((list) => [...list, generateMechanism(area)]);
+      },
       KeyI: () => openMenu('pack'),
       KeyH: () => openMenu('help'),
     }),
@@ -783,7 +840,7 @@ export function Game({
         <Effects />
         <DamageNumbers />
         <Vision entity={playerEntity} />
-        <Simulation map={map} paused={paused} />
+        <Simulation map={map} paused={paused || pendingPicks > 0} />
       </Canvas>
 
       <TouchSticks />
@@ -798,9 +855,16 @@ export function Game({
           help, run info) lives in the pause overlay. */}
       <div className="hud-strip">
         HP <b className={playerHp <= playerEntity.health!.max * 0.3 ? 'hp-low' : ''}>{playerHp}</b>
-        /{playerEntity.health!.max} · area {area} · {map.layout} · {mobEntities.length} mobs ·{' '}
-        {kills} kills
+        /{playerEntity.health!.max} · lv <b>{level}</b>
+        <span className="xp-bar">
+          <span style={{ width: `${Math.min(100, (xp / xpToNext(level)) * 100)}%` }} />
+        </span>
+        · area {area} · {map.layout} · {mobEntities.length} mobs · {kills} kills
       </div>
+
+      {pendingPicks > 0 && !menuOpen && (
+        <LevelUp level={level} character={character} spent={spent} onPick={applyPick} />
+      )}
 
       {!paused && (
         <button className="menu-open" onClick={() => openMenu('pack')}>
@@ -813,6 +877,7 @@ export function Game({
           character={character}
           seed={seed}
           area={area}
+          level={level}
           kills={kills}
           tab={menuTab}
           onTab={setMenuTab}

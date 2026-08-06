@@ -112,6 +112,13 @@ export interface Entity {
   /** Steering speed (world units/s) — bought from the mob's spawn pool. */
   moveSpeed?: number;
 
+  /** Attack-cadence multiplier on top of the weapon's own rate (1 = the
+   *  listed rate). A CHARACTER stat, not a weapon stat: the player buys it
+   *  with level-up points (`hands`), and mobs can roll it from their spawn
+   *  pool. Honored by both cadence gates (player cooldown, mob attackIn) —
+   *  one combat system. */
+  rateScale?: number;
+
   /** Breakable blocker occupying one grid cell that was stamped solid at
    *  spawn. Shots and explosions damage it; at 0 HP the cell carves back to
    *  floor (collision/LOS/A* honor it immediately) and the view unmounts.

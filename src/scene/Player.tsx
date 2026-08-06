@@ -213,13 +213,14 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
       }
       if (pending.current && cooldown.current <= 0) {
         pending.current = false;
-        cooldown.current = 1 / weapon.rate;
+        cooldown.current = 1 / (weapon.rate * (entity.rateScale ?? 1));
         performAttack();
       }
     } else if (held && cooldown.current <= 0) {
       // Bolts (and melee) spray while held, every 1/rate seconds — the
-      // move-and-shoot hose a horde game wants.
-      cooldown.current = 1 / weapon.rate;
+      // move-and-shoot hose a horde game wants. `rateScale` is the
+      // character's hands, not the gun (level-up stat).
+      cooldown.current = 1 / (weapon.rate * (entity.rateScale ?? 1));
       performAttack(); // melee: starts a sim swing · ranged: fires a bolt
     }
     wasHeld.current = held;

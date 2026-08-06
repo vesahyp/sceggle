@@ -4,7 +4,11 @@ import {
   characterHp,
   characterSpeed,
   characterResist,
+  PLATING_CAP,
+  STAT_PICKS,
   type CharacterDef,
+  type LevelSpend,
+  type StatKey,
 } from './characters';
 
 /** Roll a shareable 6-digit world seed. The one place randomness is allowed
@@ -52,6 +56,10 @@ function Help() {
       <h3>Field guide</h3>
       <ul>
         <li>Walk over drops to collect them; equip guns and install cogs in the Pack tab.</li>
+        <li>
+          Kills earn XP — elites pay far more than chaff. Each level pauses the fight for one
+          stat point: vigor, boots, plating, or hands.
+        </li>
         <li>Reach the gold pad to leave the area — expect it to be guarded.</li>
         <li>
           Exploders (orange) blow up both sides · spawners (purple) leak reinforcements while
@@ -74,6 +82,52 @@ function Help() {
   );
 }
 
+/**
+ * Level-up: the sim holds while the player spends the point — the same
+ * pause-to-decide contract as the pack. One card per stat, current spend
+ * shown so the build is legible; plating greys out at its cap.
+ */
+export function LevelUp({
+  level,
+  character,
+  spent,
+  onPick,
+}: {
+  level: number;
+  character: CharacterDef;
+  spent: LevelSpend;
+  onPick: (key: StatKey) => void;
+}) {
+  const platingFull = character.spend.plating + spent.plating >= PLATING_CAP;
+  return (
+    <div className="menu">
+      <div className="menu-panel">
+        <h1 className="menu-title-sm">Level {level}</h1>
+        <p className="menu-sub">spend a point</p>
+        <div className="pick-grid">
+          {STAT_PICKS.map((s) => {
+            const disabled = s.key === 'plating' && platingFull;
+            return (
+              <button
+                key={s.key}
+                className="pick-card"
+                disabled={disabled}
+                onClick={() => onPick(s.key)}
+              >
+                <b>{s.name}</b>
+                <span className="pick-effect">{disabled ? 'plated to the rivets' : s.effect}</span>
+                <span className="pick-current">
+                  now: {((character.spend as Partial<Record<StatKey, number>>)[s.key] ?? 0) + spent[s.key]} pts
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type GameMenuTab = 'pack' | 'help';
 
 /**
@@ -86,6 +140,7 @@ export function GameMenu({
   character,
   seed,
   area,
+  level,
   kills,
   tab,
   onTab,
@@ -96,6 +151,7 @@ export function GameMenu({
   character: CharacterDef;
   seed: number;
   area: number;
+  level: number;
   kills: number;
   tab: GameMenuTab;
   onTab: (t: GameMenuTab) => void;
@@ -110,7 +166,8 @@ export function GameMenu({
           <div>
             <h1 className="menu-title-sm">paused</h1>
             <p className="menu-run">
-              {character.name} · seed <b>{seed}</b> · area <b>{area}</b> · {kills} kills
+              {character.name} lv <b>{level}</b> · seed <b>{seed}</b> · area <b>{area}</b> ·{' '}
+              {kills} kills
             </p>
           </div>
           <div className="game-tabs">

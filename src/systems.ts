@@ -657,7 +657,7 @@ function stepMobAttacks(map: GameMap, delta: number): void {
     // Lob shells land where the target WAS at the windup — the lead time is
     // the dodge window.
     mob.aimDist = dist;
-    brain.attackIn = 1 / weapon.rate;
+    brain.attackIn = 1 / (weapon.rate * (mob.rateScale ?? 1));
     startAttack(mob, weapon);
     // Keep the turn until this swing resolves, then it goes back in the pool.
     if (mob.attack) brain.tokenHold = mob.attack.windup + mob.attack.duration;
