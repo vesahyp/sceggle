@@ -3,11 +3,14 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import {
   BoxGeometry,
+  CircleGeometry,
   DoubleSide,
   Group,
+  InstancedMesh,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Object3D,
   Plane,
   RingGeometry,
   Vector3,
@@ -16,7 +19,7 @@ import { mobs, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { circleOverlapsWall, worldToCell, type GameMap } from '../worldmap';
 import { keyboard } from '../input';
-import { touch } from '../touch';
+import { touch, FIRE_ON } from '../touch';
 import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
@@ -30,6 +33,9 @@ const CAM_OFFSET = new Vector3(0, 12, 8); // top-down, tilted for a 2.5D feel
 const MUZZLE = 0.6;
 /** Ground indicators float this high above the floor (in player-local space). */
 const GROUND = -BODY_Y + 0.05;
+/** Arc dots start at the muzzle's height — the same body height the shell
+ *  renders at — measured inside the ground-level aim pivot. */
+const ARC_Y = -GROUND;
 
 // Scratch objects reused each frame (avoid per-frame allocation).
 const groundPlane = new Plane(new Vector3(0, 1, 0), -BODY_Y);
@@ -71,6 +77,22 @@ LINE_GEOM.translate(0, 0, 0.5);
 // End-of-range marker: a flat ring lying on the ground.
 const END_GEOM = new RingGeometry(0.14, 0.2, 24);
 END_GEOM.rotateX(-Math.PI / 2);
+// Lob landing zone: unit-radius disc + rim, scaled to the blast radius.
+const DISC_GEOM = new CircleGeometry(1, 32);
+DISC_GEOM.rotateX(-Math.PI / 2);
+const RIM_GEOM = new RingGeometry(0.9, 1, 32);
+RIM_GEOM.rotateX(-Math.PI / 2);
+
+/** Dots tracing the lob's flight path — enough to read as an arc, few
+ *  enough to stay dotted rather than solid. */
+const ARC_DOTS = 12;
+const arcDot = new Object3D();
+/** Aim-preview colors: gold = release and it flies, red = the trigger is
+ *  off, so releasing here throws nothing. */
+const AIM_GOLD = '#ffd166';
+const AIM_DEAD = '#ff5a5a';
+/** Shortest throw a stick flick can make (world units from the muzzle). */
+const LOB_MIN_DIST = 2.5;
 
 /**
  * Player: a capsule steered by held keys. The view writes input into
@@ -99,6 +121,11 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
   const strike = useRef<Mesh>(null);
   const endRing = useRef<Mesh>(null);
   const endMat = useRef<MeshBasicMaterial>(null);
+  const arc = useRef<InstancedMesh>(null);
+  const arcMat = useRef<MeshBasicMaterial>(null);
+  const landing = useRef<Group>(null);
+  const landFillMat = useRef<MeshBasicMaterial>(null);
+  const landRimMat = useRef<MeshBasicMaterial>(null);
   const attackHeld = useRef(false);
   /** Lob trigger state: held-last-frame (for the release edge) and a queued
    *  round (released mid-re-arm — fires the moment the crank finishes). */
@@ -178,8 +205,20 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     //     projected onto the body-height ground plane. ---
     if (touch.aim.active) {
       entity.aim = assistAim(pos, touch.aim.x, touch.aim.z, weapon.reach);
-      // No cursor on touch — lobs fly to full reach.
-      entity.aimDist = weapon.reach;
+      // No cursor on touch, so a lob's throw distance rides the stick:
+      // barely past the trigger lands short, full deflection reaches out to
+      // the gun's range. Only an ARMED stick moves the landing spot — easing
+      // back toward center is the cancel gesture, and the preview should
+      // hold where it was (turning red) instead of collapsing inward.
+      if (weapon.delivery === 'lob') {
+        if (touch.aim.fire) {
+          const near = Math.min(LOB_MIN_DIST, weapon.reach);
+          const t = Math.max(0, (touch.aim.mag - FIRE_ON) / (1 - FIRE_ON));
+          entity.aimDist = near + (weapon.reach - near) * t;
+        }
+      } else {
+        entity.aimDist = weapon.reach;
+      }
     } else if (!touch.used) {
       raycaster.setFromCamera(pointer, camera);
       if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
@@ -242,6 +281,51 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
       // attack is unavailable (mid-attack or on cooldown), normal when ready.
       const opacity = !ms && cooldown.current <= 0 ? 0.28 : 0.06;
       if (sectorMat.current) sectorMat.current.opacity = opacity;
+    } else if (weapon.delivery === 'lob') {
+      // The throw preview: a dotted arc along the shell's actual flight path
+      // (the same parabola Projectiles.tsx draws, so the dots are where the
+      // shell will be) ending in a disc the size of the blast. It shows
+      // while aiming — trigger held on mouse, thumb down on touch.
+      //
+      // Gold says "release and it flies". Red says the trigger is off: the
+      // stick is back inside the dead zone, so letting go throws nothing.
+      // That's the Brawl cancel gesture, and this is the tell for it.
+      const range = Math.max(0.9, Math.min(weapon.reach, entity.aimDist ?? weapon.reach) - MUZZLE);
+      const aiming = held || touch.aim.active;
+      const dead = aiming && !held;
+      const color = dead ? AIM_DEAD : AIM_GOLD;
+      // Dim while the crank is still turning — the shell can be aimed but
+      // not yet thrown (a release there queues it).
+      const ready = cooldown.current <= 0;
+      if (arc.current) {
+        arc.current.visible = aiming;
+        if (aiming) {
+          const peak = Math.min(3.2, range * 0.35);
+          for (let i = 0; i < ARC_DOTS; i++) {
+            const t = (i + 1) / ARC_DOTS;
+            arcDot.position.set(0, ARC_Y + peak * 4 * t * (1 - t), MUZZLE + range * t);
+            arcDot.updateMatrix();
+            arc.current.setMatrixAt(i, arcDot.matrix);
+          }
+          arc.current.instanceMatrix.needsUpdate = true;
+        }
+      }
+      if (arcMat.current) {
+        arcMat.current.color.set(color);
+        arcMat.current.opacity = ready ? 0.9 : 0.35;
+      }
+      if (landing.current) {
+        landing.current.position.z = MUZZLE + range;
+        landing.current.scale.setScalar(Math.max(0.4, weapon.blastRadius));
+      }
+      if (landFillMat.current) {
+        landFillMat.current.color.set(color);
+        landFillMat.current.opacity = aiming ? (ready ? 0.26 : 0.12) : 0.1;
+      }
+      if (landRimMat.current) {
+        landRimMat.current.color.set(color);
+        landRimMat.current.opacity = aiming ? (ready ? 0.95 : 0.4) : 0.45;
+      }
     } else {
       // Same readiness language as the melee sector: the line brightens over
       // the aim, goes dim while the mechanism re-arms, normal when ready.
@@ -249,34 +333,17 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         ? ms.t <= ms.windup ? 0.5 + 0.5 * (ms.t / ms.windup) : 0.15
         : cooldown.current > 0 ? 0.15 : 0.5;
       if (lineMat.current) lineMat.current.opacity = lineOpacity;
+      // March along the aim like the projectile will, stopping at the
+      // first wall — the line length IS how far this shot can actually fly.
       let range = weapon.reach;
-      if (weapon.delivery === 'lob') {
-        // A lob flies over walls and lands at the cursor: the ring marks the
-        // landing point, nothing clips the line.
-        range = Math.max(0.3, Math.min(weapon.reach, entity.aimDist ?? weapon.reach) - MUZZLE);
-      } else {
-        // March along the aim like the projectile will, stopping at the
-        // first wall — the line length IS how far this shot can actually fly.
-        for (let d = 0; d < weapon.reach; d += 0.25) {
-          if (circleOverlapsWall(map, pos.x + aim.x * (MUZZLE + d), pos.z + aim.z * (MUZZLE + d), weapon.hitRadius)) {
-            range = d;
-            break;
-          }
+      for (let d = 0; d < weapon.reach; d += 0.25) {
+        if (circleOverlapsWall(map, pos.x + aim.x * (MUZZLE + d), pos.z + aim.z * (MUZZLE + d), weapon.hitRadius)) {
+          range = d;
+          break;
         }
       }
       if (line.current) line.current.scale.z = range;
-      if (endRing.current) {
-        endRing.current.position.z = MUZZLE + range;
-        // Landing ring swells to the blast radius so a lobber reads its
-        // splash before committing.
-        const ringScale = weapon.delivery === 'lob' && weapon.blastRadius > 0 ? weapon.blastRadius / 0.17 : 1;
-        endRing.current.scale.setScalar(ringScale);
-      }
-      // While a lobber is held it's AIMING (fire comes on release): the
-      // landing ring lights up to say "this is where it lands".
-      if (endMat.current) {
-        endMat.current.opacity = weapon.delivery === 'lob' && held ? 1 : 0.65;
-      }
+      if (endRing.current) endRing.current.position.z = MUZZLE + range;
     }
 
     // --- Status readout (billboarded above the head) ---
@@ -364,6 +431,22 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
           <mesh geometry={sectorGeom} renderOrder={990}>
             <meshBasicMaterial ref={sectorMat} color="#ffd166" transparent opacity={0.16} side={DoubleSide} depthWrite={false} depthTest={false} />
           </mesh>
+        ) : weapon.delivery === 'lob' ? (
+          /* Throw preview: dotted flight arc + the blast it lands in. */
+          <>
+            <instancedMesh ref={arc} args={[undefined, undefined, ARC_DOTS]} frustumCulled={false} visible={false} renderOrder={992}>
+              <sphereGeometry args={[0.075, 8, 8]} />
+              <meshBasicMaterial ref={arcMat} color="#ffd166" transparent opacity={0.9} depthWrite={false} depthTest={false} />
+            </instancedMesh>
+            <group ref={landing}>
+              <mesh geometry={DISC_GEOM} renderOrder={990}>
+                <meshBasicMaterial ref={landFillMat} color="#ffd166" transparent opacity={0.1} side={DoubleSide} depthWrite={false} depthTest={false} />
+              </mesh>
+              <mesh geometry={RIM_GEOM} renderOrder={991}>
+                <meshBasicMaterial ref={landRimMat} color="#ffd166" transparent opacity={0.45} side={DoubleSide} depthWrite={false} depthTest={false} />
+              </mesh>
+            </group>
+          </>
         ) : (
           <>
             <mesh ref={line} geometry={LINE_GEOM} position={[0, 0, MUZZLE]} renderOrder={990}>

@@ -29,7 +29,7 @@ const DEAD_ZONE = 0.18; // fraction of RADIUS
 /** Trigger hysteresis: firing starts past ON and keeps going until the
  *  stick drops under OFF (or the thumb lifts). A single threshold made
  *  fire flicker off whenever the thumb eased toward center mid-hold. */
-const FIRE_ON = 0.22;
+export const FIRE_ON = 0.22;
 const FIRE_OFF = 0.1;
 
 export const touch = {
@@ -39,11 +39,13 @@ export const touch = {
   move: { x: 0, z: 0, active: false },
   /** Aim direction + trigger. Direction persists after release so the
    *  player keeps facing their last aim, like the mouse cursor does.
+   *  `mag` is the raw deflection (0..1) — a lob's throw distance rides it,
+   *  the way a thrower's reticle slides out with the stick in Brawl.
    *  `canceled` marks a trigger release that came from easing the stick
    *  back to center rather than lifting the thumb — the Brawl-style cancel
    *  gesture. Lob weapons fire on release UNLESS canceled (Player.tsx
    *  consumes and clears the flag); spray weapons ignore it. */
-  aim: { x: 0, z: 1, active: false, fire: false, canceled: false },
+  aim: { x: 0, z: 1, mag: 0, active: false, fire: false, canceled: false },
   sticks: {
     left: { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 } as StickVisual,
     right: { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 } as StickVisual,
@@ -82,6 +84,7 @@ function update(side: 'left' | 'right', px: number, py: number): void {
     touch.move.active = true;
   } else {
     touch.aim.active = true;
+    touch.aim.mag = mag;
     if (mag >= DEAD_ZONE) {
       touch.aim.x = nx;
       touch.aim.z = ny;
@@ -106,6 +109,7 @@ function release(side: 'left' | 'right'): void {
   } else {
     touch.aim.active = false;
     touch.aim.fire = false;
+    touch.aim.mag = 0;
   }
 }
 

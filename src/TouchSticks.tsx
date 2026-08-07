@@ -8,8 +8,13 @@ import { touch, type StickVisual } from './touch';
  * loop with direct style writes; React renders the four divs once and never
  * again. pointer-events: none throughout — the canvas underneath owns the
  * touches, this layer only shows them.
+ *
+ * `cancelable` (a lob is equipped, where the trigger fires on RELEASE) puts
+ * the aim stick into the cancel language: red while the thumb is down but
+ * inside the dead zone, matching the red flight arc out in the world —
+ * let go here and nothing is thrown.
  */
-export function TouchSticks() {
+export function TouchSticks({ cancelable = false }: { cancelable?: boolean }) {
   const leftBase = useRef<HTMLDivElement>(null);
   const leftKnob = useRef<HTMLDivElement>(null);
   const rightBase = useRef<HTMLDivElement>(null);
@@ -28,11 +33,14 @@ export function TouchSticks() {
     const tick = () => {
       apply(touch.sticks.left, leftBase.current, leftKnob.current);
       apply(touch.sticks.right, rightBase.current, rightKnob.current);
+      const dead = cancelable && touch.aim.active && !touch.aim.fire;
+      rightBase.current?.classList.toggle('stick-dead', dead);
+      rightKnob.current?.classList.toggle('stick-dead', dead);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [cancelable]);
 
   return (
     <div className="touch-sticks">

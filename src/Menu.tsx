@@ -42,8 +42,9 @@ function Help() {
           <kbd>Click</kbd> / <kbd>Space</kbd> fire (hold to keep firing at the cursor)
         </li>
         <li>
-          Lob guns aim while held — the landing ring lights up at your cursor — and fire on
-          release. On touch, ease the stick back to center to cancel the shot.
+          Lob guns aim while held — an arc traces the shell and a disc marks the blast — and
+          fire on release. On touch, the aim stick sets the throw distance; ease it back to
+          center and the preview turns red, meaning releasing there throws nothing.
         </li>
         <li>
           <kbd>Esc</kbd> pause menu · <kbd>I</kbd> pack · <kbd>H</kbd> this help

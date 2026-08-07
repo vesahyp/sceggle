@@ -845,7 +845,7 @@ export function Game({
         <Simulation map={map} paused={paused || pendingPicks > 0} />
       </Canvas>
 
-      <TouchSticks />
+      <TouchSticks cancelable={playerWeapon.delivery === 'lob'} />
 
       {combo >= 2 && (
         <div className="combo" key={combo}>

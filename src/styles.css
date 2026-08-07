@@ -254,6 +254,16 @@ body,
   background: rgba(255, 209, 102, 0.6);
 }
 
+/* Lob trigger dropped back into the dead zone: releasing here throws
+   nothing. Same red the flight arc goes in the world. */
+.stick-base.stick-dead {
+  border-color: rgba(255, 90, 90, 0.55);
+}
+
+.stick-knob.stick-dead {
+  background: rgba(255, 90, 90, 0.55);
+}
+
 /* Opens the pause overlay (on the Pack tab). Top-right corner on purpose —
    it's a deliberate pause action, not a combat control (desktop has Esc/I). */
 .menu-open {
