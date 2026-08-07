@@ -13,6 +13,10 @@
     <!-- Installed-PWA is the fullscreen path on iPhone (no Fullscreen API). -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- iOS ignores SVG manifest icons — A2HS needs this PNG or the home
+         screen gets a page screenshot instead. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>sceggle — hack-slash-loot</title>

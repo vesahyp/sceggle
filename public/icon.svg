@@ -1,18 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="18" fill="#0f1117"/>
-  <!-- a cog: the construction unit -->
-  <g fill="#e8c97f">
-    <circle cx="50" cy="50" r="20"/>
-    <g>
-      <rect x="45" y="18" width="10" height="14" rx="2"/>
-      <rect x="45" y="68" width="10" height="14" rx="2"/>
-      <rect x="18" y="45" width="14" height="10" rx="2"/>
-      <rect x="68" y="45" width="14" height="10" rx="2"/>
-      <rect x="45" y="18" width="10" height="14" rx="2" transform="rotate(45 50 50)"/>
-      <rect x="45" y="68" width="10" height="14" rx="2" transform="rotate(45 50 50)"/>
-      <rect x="18" y="45" width="14" height="10" rx="2" transform="rotate(45 50 50)"/>
-      <rect x="68" y="45" width="14" height="10" rx="2" transform="rotate(45 50 50)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The cog: sceggle's construction unit, in the UI's brass. Everything
+       stays inside r=200 of center so round launcher masks never clip it
+       (maskable safe zone). Full-bleed background: iOS rounds its own
+       corners on the home screen. -->
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#e07a4f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#0f1117"/>
+  <!-- Tilted off-axis so it reads as machinery, not a settings glyph. -->
+  <g transform="translate(256 256) rotate(15)">
+    <g fill="url(#brass)">
+      <rect x="-26" y="-192" width="52" height="72" rx="12"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(45)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(90)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(135)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(180)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(225)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(270)"/>
+      <rect x="-26" y="-192" width="52" height="72" rx="12" transform="rotate(315)"/>
+      <circle r="150"/>
     </g>
+    <!-- hex hub hole — the fitting a cog drops into -->
+    <path d="M 55.4 -32 L 55.4 32 L 0 64 L -55.4 32 L -55.4 -32 L 0 -64 Z" fill="#0f1117"/>
   </g>
-  <circle cx="50" cy="50" r="9" fill="#0f1117"/>
 </svg>
