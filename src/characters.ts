@@ -112,6 +112,16 @@ export const CHARACTERS: CharacterDef[] = [
     fits: (w) => w.delivery === 'lob' && w.damage >= 3,
   },
   {
+    id: 'steamer',
+    name: 'Steamer',
+    role: 'quiet bruiser',
+    blurb: 'Boils the front rank at arm’s length. The jet hisses where a gun cracks — she can work a flank without calling the whole field over.',
+    gunLine: 'short-range steam jet',
+    tint: '#7fd4c8',
+    spend: { vigor: 5, boots: 3, plating: 2, barrel: 2 },
+    fits: (w) => w.delivery === 'jet' && w.reach <= 5,
+  },
+  {
     id: 'skirmisher',
     name: 'Skirmisher',
     role: 'fast harasser',
@@ -131,28 +141,43 @@ if (import.meta.env.DEV) {
   }
 }
 
+/** Where in the fitting rolls the starter lands, by offense. Best-of-N shipped
+ *  the 99.9th-percentile gun of its budget — it deleted the first two areas
+ *  and made every drop look like junk next to it. A solidly-above-median
+ *  roll still carries the opening horde without outclassing the elite drop
+ *  rolled from the same budget. */
+const STARTER_PERCENTILE = 0.6;
+/** The never-a-dud floor, in offense rather than in raw damage. A flat
+ *  `damage >= 2` was delivery-blind: a jet deals its damage in weak puffs by
+ *  design, so that floor rejected almost every steam roll and quietly
+ *  dropped the Steamer onto the fallback path. */
+const STARTER_OFFENSE_FLOOR = 3;
+
 /**
  * Roll the archetype's starter gun for a world seed. On its own seeded
  * stream (same seed + same pick → same gun) — through seedRng, because the
  * per-archetype seeds are near-sequential and rot.js leaks raw seeds into
- * early draws. Best-of-N among rolls that pass the archetype predicate and
- * the never-a-dud floors, rather than first-to-pass: the shapes land on
- * only ~1–2% of raw rolls (measured), so "stop at the first pass" mostly
- * shipped a barely-passing gun, and the opening gun has to carry the first
- * horde on its own. Drops keep their spiky rolls — the slot machine starts
- * with the first pickup.
+ * early draws.
+ *
+ * The sample is wide (the archetype shapes land on only a few percent of raw
+ * rolls, so first-to-pass mostly shipped a barely-passing gun) but the PICK
+ * is a percentile, not the maximum — see STARTER_PERCENTILE. Drops keep
+ * their spiky rolls; the slot machine starts with the first pickup, and now
+ * it can actually beat what you started with.
  */
 export function rollStarterWeapon(c: CharacterDef, seed: number): WeaponDef {
   seedRng(seed * 13 + CHARACTERS.indexOf(c));
   const budget = weaponBudget(1) + 4 + c.spend.barrel;
   const score = (w: WeaponDef) => w.damage * w.rate * w.count;
-  let best: WeaponDef | undefined;
+  const fitting: WeaponDef[] = [];
   let fallback = generateWeapon('ranged', 1, budget);
   for (let i = 0; i < 1000; i++) {
     const w = generateWeapon('ranged', 1, budget);
-    if (c.fits(w) && w.damage >= 2 && w.rate >= 0.8) {
-      if (!best || score(w) > score(best)) best = w;
-    } else if (score(w) > score(fallback)) fallback = w;
+    if (c.fits(w) && score(w) >= STARTER_OFFENSE_FLOOR && w.rate >= 0.8) fitting.push(w);
+    else if (score(w) > score(fallback)) fallback = w;
   }
-  return best ?? fallback;
+  if (fitting.length === 0) return fallback;
+  // Stable sort + a fixed index: same seed, same gun (determinism rule).
+  fitting.sort((a, b) => score(a) - score(b));
+  return fitting[Math.floor(fitting.length * STARTER_PERCENTILE)];
 }

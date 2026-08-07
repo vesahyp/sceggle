@@ -88,6 +88,74 @@ const TOKEN_COOLDOWN = 0.7;
  *  ready to swing, rather than queueing only once it is already in place. */
 const TOKEN_RANGE = 1.6;
 
+/* ---------------------------------------------------------------------- *
+ * Noise — what the horde hears.
+ *
+ * Ears differ from eyes in exactly two ways, and this is where both live:
+ * sound ignores walls, and it ignores which way a mob is facing. So a noise
+ * is nothing but a point and how far it carries.
+ *
+ * The rule that makes it a mechanic: **a noise points a mob at where the
+ * SOUND was, never at where the player is.** You get investigated, not
+ * found. Fire from cover and the pack converges on your muzzle flash while
+ * you walk away; drop a shell across the yard and they go to the shell.
+ *
+ * An explosion's flash rides the same event rather than getting its own
+ * cone-tested sight check — one bang is one thing to notice, and a second
+ * mechanic that read identically would only be a second thing to tune.
+ * ---------------------------------------------------------------------- */
+interface Noise {
+  x: number;
+  z: number;
+  /** How far it carries for nominal ears (HEARING_REF). */
+  radius: number;
+}
+/** Disturbances raised since the last AI pass; drained by updateEnemyAI. */
+const noises: Noise[] = [];
+
+/** The hearing roll a noise radius is quoted against — mobs roll 2.5–4.0,
+ *  so sharper ears hear proportionally further than the radius says. */
+const HEARING_REF = 3;
+/** Speeds bounding the movement-loudness ramp. Shared with the footstep
+ *  ripples (scene/Footsteps), so the ring you see IS the noise that carries. */
+const QUIET_SPEED = 2.5;
+const LOUD_SPEED = 5;
+/** What a motionless player still gives away, as a share of a mob's hearing
+ *  ring. Not zero — standing on someone's toes is detectable — but small
+ *  enough that holding still in cover is a real move. */
+const STILL_LOUDNESS = 0.3;
+
+/**
+ * How much of its hearing ring a mob gets against a body moving this fast.
+ * Standing still is nearly silent, a sprint fills the ring. The renderer
+ * draws footstep ripples from the same curve.
+ */
+export function moveLoudness(speed: number): number {
+  const k = Math.min(1, Math.max(0, (speed - QUIET_SPEED) / (LOUD_SPEED - QUIET_SPEED)));
+  return STILL_LOUDNESS + (1 - STILL_LOUDNESS) * k;
+}
+
+/** What a jet gives away, against a bang of the same numbers. Escaping
+ *  gunfire is the steam archetype's whole compensation for having to be at
+ *  arm's length: it hisses where a bolt cracks, so a Steamer can work a
+ *  flank without calling the rest of the field over. */
+const JET_LOUDNESS = 0.35;
+
+/** How far an attack carries. Guns crack, blades swish, steam hisses, and a
+ *  shell that is going to detonate announces itself on the way out. */
+const attackLoudness = (w: WeaponDef) =>
+  w.kind === 'melee' ? 2 : (5 + w.damage * 0.4 + w.blastRadius * 1.5) * (w.delivery === 'jet' ? JET_LOUDNESS : 1);
+
+/** A detonation is the loudest thing on the field, and the one disturbance
+ *  that is unmistakably seen as well as heard. */
+const explosionLoudness = (radius: number) => 7 + radius * 4;
+
+/** Raise a disturbance at a point. Anything of the horde with ears in range
+ *  goes and looks — at the point, not at the player. */
+export function emitNoise(x: number, z: number, radius: number): void {
+  if (radius > 0) noises.push({ x, z, radius });
+}
+
 /** View-feedback channel the render layer reads and decays: kills and
  *  detonations pump `shake`, the camera trembles by it. Not sim state. */
 export const viewFx = { shake: 0 };
@@ -411,7 +479,7 @@ function stepSpawners(map: GameMap, delta: number): void {
     }
     // Born into the fight: it inherits the spawner's memory of the player
     // rather than having to find them itself.
-    rememberPlayer(child.brain!, mob.brain!.lastSeen?.x ?? mob.pos.x, mob.brain!.lastSeen?.z ?? mob.pos.z);
+    alertTo(child.brain!, mob.brain!.lastSeen?.x ?? mob.pos.x, mob.brain!.lastSeen?.z ?? mob.pos.z);
     emitGameEvent({ type: 'mobsSpawned', mobs: [child] });
   }
 }
@@ -529,6 +597,10 @@ function processExplosions(map: GameMap): void {
   for (let guard = 0; explosionQueue.length > 0 && guard < 64; guard++) {
     const ex = explosionQueue.shift()!;
     emitGameEvent({ type: 'explosion', x: ex.x, z: ex.z, radius: ex.radius });
+    // The boom: heard (and seen) far past what it burns, by everyone,
+    // through everything. Whoever notices comes to the CRATER — which is
+    // why a shell landed away from you pulls a pack away from you.
+    emitNoise(ex.x, ex.z, explosionLoudness(ex.radius));
     viewFx.shake = Math.min(0.5, viewFx.shake + 0.18);
 
     // Blasts break crates and barrels no matter whose they are — a barrel's
@@ -771,18 +843,21 @@ function cancelWindup(entity: Entity): void {
  * charge) fire from the hit context.
  */
 function damageMob(mob: Entity, amount: number, ctx: HitCtx): void {
-  // Getting hit points the mob (and its packmates) at where the player is
-  // standing — they go and look, but it's a memory like any other, so it
-  // fades if nobody re-acquires. Skipped when already at full alert, which
-  // is the common case mid-fight.
+  // Getting hit tells a mob a DIRECTION, not an address. It turns up the
+  // line the hit came from and searches along it — but no further than it
+  // could have seen, so a sniper working from outside its sight gets looked
+  // toward, not walked to. Its packmates learn nothing from this: what
+  // reaches them is the shot's own noise (startAttack), which points at the
+  // muzzle rather than at wherever the player has moved to since. That pair
+  // used to be one line of telepathy handing twenty brains the player's
+  // exact position through walls.
   const attacker = players.first;
-  if (mob.brain && attacker && mob.brain.alert < 1) {
-    rememberPlayer(mob.brain, attacker.pos.x, attacker.pos.z);
-    for (const other of mobs) {
-      if (other.brain && Math.hypot(other.pos.x - mob.pos!.x, other.pos.z - mob.pos!.z) < 5) {
-        rememberPlayer(other.brain, attacker.pos.x, attacker.pos.z);
-      }
-    }
+  if (mob.brain && mob.pos && attacker && ctx.faction === 'player' && mob.brain.alert < 1) {
+    const dx = attacker.pos.x - mob.pos.x;
+    const dz = attacker.pos.z - mob.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const look = Math.min(d, mob.brain.sight);
+    alertTo(mob.brain, mob.pos.x + (dx / d) * look, mob.pos.z + (dz / d) * look);
   }
   mob.hitFlash = 0.2; // the view flashes and squashes the body — "hit registered"
   emitGameEvent({ type: 'damage', x: mob.pos!.x, z: mob.pos!.z, amount, target: 'mob' });
@@ -958,6 +1033,14 @@ function startAttack(attacker: Entity, weapon: WeaponDef): void {
   // Attacking gives you away: grass concealment breaks for a beat (both
   // sides set it — one combat path; perception reads the player's).
   attacker.reveal = 1.0;
+  // …and it is heard. The bang goes off at the MUZZLE, so what the horde
+  // learns is where you fired from — stale the moment you move. Only the
+  // player's shots are broadcast: nothing in the sim listens for a mob's,
+  // and a pack investigating its own gunfire is just twenty mobs walking
+  // into each other.
+  if (attacker.player && attacker.pos) {
+    emitNoise(attacker.pos.x, attacker.pos.z, attackLoudness(weapon));
+  }
   attacker.attack =
     weapon.kind === 'melee'
       ? {
@@ -1087,11 +1170,18 @@ function advanceAttack(attacker: Entity, delta: number): void {
  */
 function updateEnemyAI(map: GameMap, delta: number): void {
   const player = players.first;
-  if (!player) return;
+  if (!player) {
+    noises.length = 0;
+    return;
+  }
 
   const pp = player.pos;
   const pCellX = worldToCell(pp.x);
   const pCellZ = worldToCell(pp.z);
+  // How loud the player is right now, as a share of every mob's hearing
+  // ring. This is the whole of "standing still is quiet": the ring the view
+  // draws around each mob breathes with this same number.
+  const loudness = moveLoudness(Math.hypot(player.vel.x, player.vel.z));
 
   // One expansion out from the player serves the whole horde this tick, and
   // one bucket index serves everyone's crowd avoidance.
@@ -1104,6 +1194,18 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     const brain = mob.brain;
     if (!brain) continue;
 
+    // Ears, part one: disturbances. A shot, a shell landing, a barrel going
+    // up. Each sends this mob to the SOUND — walls and facing are irrelevant
+    // (that is what makes ears not eyes), and sharper-eared mobs hear
+    // further than the radius says. Handled before the stagger bail so a
+    // reeling mob still hears the next bang.
+    if (noises.length > 0) {
+      const ears = brain.hearing / HEARING_REF;
+      for (const n of noises) {
+        if (Math.hypot(n.x - mob.pos.x, n.z - mob.pos.z) <= n.radius * ears) alertTo(brain, n.x, n.z);
+      }
+    }
+
     // Just got hit — ride out the knockback, decaying it like damping would.
     if (brain.stagger > 0) {
       brain.stagger -= delta;
@@ -1115,8 +1217,9 @@ function updateEnemyAI(map: GameMap, delta: number): void {
 
     const dist = Math.hypot(pp.x - mob.pos.x, pp.z - mob.pos.z);
 
-    // Perception: notice the player by ear (short radius, through walls) or
-    // by eye — inside the sight distance AND the facing cone AND with clear
+    // Perception: notice the player by ear (short radius, through walls,
+    // scaled by how much noise they are actually making) or by eye — inside
+    // the sight distance AND the facing cone AND with clear
     // line of sight. Latches on. Until then, the mob wanders — which is
     // exactly what swings its cone around and makes sneaking dynamic.
     // Grass (Brawl rules): a quiet player standing in grass is invisible to
@@ -1133,7 +1236,7 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     // Already hunting? Then the eyes reach further — see SIGHT_KEEP.
     const seeRange = brain.alert > 0 ? brain.sight * SIGHT_KEEP : brain.sight;
     brain.perceives =
-      dist <= brain.hearing ||
+      dist <= brain.hearing * loudness ||
       (dist <= seeRange &&
         facing &&
         !playerHidden &&
@@ -1142,7 +1245,7 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     // Memory: perceiving refills it and pins where the player is; failing to
     // perceive drains it. Empty means forgotten — back to wandering.
     if (brain.perceives) {
-      rememberPlayer(brain, pp.x, pp.z);
+      alertTo(brain, pp.x, pp.z);
     } else if (brain.alert > 0) {
       brain.alert = Math.max(0, brain.alert - delta / brain.memory);
       if (brain.alert === 0) brain.lastSeen = undefined;
@@ -1214,6 +1317,10 @@ function updateEnemyAI(map: GameMap, delta: number): void {
     mob.vel.x = dir.x * speed;
     mob.vel.z = dir.z * speed;
   }
+
+  // Heard by everyone who was going to hear them. A disturbance is an event,
+  // not a state: what survives it is the memory it left in a brain.
+  noises.length = 0;
 }
 
 /**
@@ -1265,11 +1372,13 @@ function addCrowdDanger(steer: Steering, grid: MobGrid, mob: Positioned): CrowdS
 }
 
 /**
- * Pin the player's position in a mob's memory and refill its alertness —
- * what perceiving the player does, and what being hit does too (a shot tells
- * you where the shooter is standing well enough to go look).
+ * Pin a point in a mob's memory and refill its alertness — the one way
+ * anything gets a mob's attention. Perception passes the player's actual
+ * position; ears pass where the sound was; a hit passes a point up the line
+ * it came from. The mob can't tell the difference, which is the mechanic:
+ * it goes and looks, and being wrong costs it the walk.
  */
-function rememberPlayer(brain: NonNullable<Entity['brain']>, x: number, z: number): void {
+function alertTo(brain: NonNullable<Entity['brain']>, x: number, z: number): void {
   brain.alert = 1;
   brain.searchLook = SEARCH_LOOK * searchPersistence(brain.traits);
   if (brain.lastSeen) {

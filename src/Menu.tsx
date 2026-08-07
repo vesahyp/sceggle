@@ -71,8 +71,13 @@ function Help() {
           you're seen.
         </li>
         <li>
-          Idle mobs wander: the blue cone is where one looks, the gold ring how far it hears.
-          Your footsteps ripple — keep them outside the ring and out of the cone to sneak.
+          Idle mobs wander: the blue cone is where one looks, the gold ring how far it hears
+          YOU — it shrinks when you slow down and swells when you sprint, and your footstep
+          ripples are the same noise. Keep out of both to sneak.
+        </li>
+        <li>
+          Shots and explosions are heard, and whoever hears one goes to the BANG, not to you.
+          Shoot and move; land a shell across the yard to pull a pack off yourself.
         </li>
         <li>
           Grass hides you from eyes (you fade), not ears — firing gives you away. Crates break
@@ -81,6 +86,11 @@ function Help() {
         <li>
           Lob guns arc over walls and land at your cursor, torching the ground. Green fire is
           theirs — walk out of it.
+        </li>
+        <li>
+          Steam jets spray a short wide cone that passes straight through bodies: little per
+          puff, brutal on a packed front rank, and quiet enough to work a flank without
+          calling the field over. You have to be close, though.
         </li>
       </ul>
     </div>

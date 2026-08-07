@@ -121,6 +121,8 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
   const strike = useRef<Mesh>(null);
   const endRing = useRef<Mesh>(null);
   const endMat = useRef<MeshBasicMaterial>(null);
+  const jetCone = useRef<Mesh>(null);
+  const jetMat = useRef<MeshBasicMaterial>(null);
   const arc = useRef<InstancedMesh>(null);
   const arcMat = useRef<MeshBasicMaterial>(null);
   const landing = useRef<Group>(null);
@@ -147,6 +149,17 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     return g;
   }, [weapon]);
   useEffect(() => () => sectorGeom.dispose(), [sectorGeom]);
+
+  // A jet's cone: the actual fan its puffs fly in — half-angle from the
+  // rolled spread and puff count, radius from reach, widened by the puff
+  // body so the edge is where a puff can still touch something.
+  const jetGeom = useMemo(() => {
+    const half = (weapon.spread * (weapon.count - 1)) / 2 + weapon.hitRadius;
+    const g = new RingGeometry(0.25, Math.max(0.3, weapon.reach), 40, 1, Math.PI / 2 - half, half * 2);
+    g.rotateX(Math.PI / 2);
+    return g;
+  }, [weapon]);
+  useEffect(() => () => jetGeom.dispose(), [jetGeom]);
 
   // Attack input: hold left mouse button or Space to attack continuously —
   // the weapon's `rate` (attacks/sec) sets the cadence via a cooldown in
@@ -281,6 +294,20 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
       // attack is unavailable (mid-attack or on cooldown), normal when ready.
       const opacity = !ms && cooldown.current <= 0 ? 0.28 : 0.06;
       if (sectorMat.current) sectorMat.current.opacity = opacity;
+    } else if (weapon.delivery === 'jet') {
+      // A jet has no line to draw — it has a cone, and the cone IS the
+      // weapon. Wall-clipped like the bolt line (uniform scale shrinks the
+      // fan's radius), so what you see is where steam can actually reach.
+      let range = weapon.reach;
+      for (let d = 0; d < weapon.reach; d += 0.25) {
+        if (circleOverlapsWall(map, pos.x + aim.x * (MUZZLE + d), pos.z + aim.z * (MUZZLE + d), weapon.hitRadius)) {
+          range = Math.max(0.3, d);
+          break;
+        }
+      }
+      if (jetCone.current) jetCone.current.scale.setScalar(range / weapon.reach);
+      // Same readiness language as everything else: bright when it can fire.
+      if (jetMat.current) jetMat.current.opacity = ms || cooldown.current > 0 ? 0.1 : 0.22;
     } else if (weapon.delivery === 'lob') {
       // The throw preview: a dotted arc along the shell's actual flight path
       // (the same parabola Projectiles.tsx draws, so the dots are where the
@@ -430,6 +457,10 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
         {weapon.kind === 'melee' ? (
           <mesh geometry={sectorGeom} renderOrder={990}>
             <meshBasicMaterial ref={sectorMat} color="#ffd166" transparent opacity={0.16} side={DoubleSide} depthWrite={false} depthTest={false} />
+          </mesh>
+        ) : weapon.delivery === 'jet' ? (
+          <mesh ref={jetCone} geometry={jetGeom} renderOrder={990}>
+            <meshBasicMaterial ref={jetMat} color="#9fe8e0" transparent opacity={0.22} side={DoubleSide} depthWrite={false} depthTest={false} />
           </mesh>
         ) : weapon.delivery === 'lob' ? (
           /* Throw preview: dotted flight arc + the blast it lands in. */

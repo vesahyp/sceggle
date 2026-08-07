@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import { DoubleSide, Group, Mesh, MeshStandardMaterial, RingGeometry } from 'three';
-import type { Entity } from '../ecs';
+import { players, type Entity } from '../ecs';
 import { worldToCell, type GameMap } from '../worldmap';
-import { bladeAngle } from '../systems';
+import { bladeAngle, moveLoudness } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
 
@@ -42,6 +42,7 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
   const status = useRef<Group>(null);
   const idleSenses = useRef<Group>(null);
   const conePivot = useRef<Group>(null);
+  const hearRing = useRef<Mesh>(null);
 
   const level = entity.level ?? 1;
   const tint = entity.tint ?? LEVEL_COLORS[Math.min(level, LEVEL_COLORS.length) - 1];
@@ -113,6 +114,16 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
     // Senses stay drawn while the mob is merely searching — the sweeping
     // cone IS the information you need to slip past it.
     if (idleSenses.current) idleSenses.current.visible = !entity.brain?.perceives;
+    // The hearing ring is how far THIS mob can hear YOU, right now: the
+    // rolled radius scaled by how much noise you're making. It shrinks as
+    // you slow down and swells as you sprint, using the same curve
+    // perception does — so the ring is a promise, not a decoration.
+    if (hearRing.current && entity.brain) {
+      const pv = players.first?.vel;
+      hearRing.current.scale.setScalar(
+        entity.brain.hearing * moveLoudness(pv ? Math.hypot(pv.x, pv.z) : 0),
+      );
+    }
     statusPivot.current?.quaternion.copy(camera.quaternion);
     if (status.current) status.current.visible = (entity.brain?.stagger ?? 0) > 0;
 
@@ -179,6 +190,7 @@ export function Mob({ entity, map }: { entity: Entity; map: GameMap }) {
             </mesh>
           </group>
           <mesh
+            ref={hearRing}
             geometry={HEARING_RING_GEOM}
             scale={entity.brain?.hearing ?? 3}
             position={[0, -BODY_Y + 0.025, 0]}

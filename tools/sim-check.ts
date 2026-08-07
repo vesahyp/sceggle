@@ -25,7 +25,7 @@ declare const process: { exitCode?: number };
 import * as ROT from 'rot-js';
 import { world, type Entity } from '../src/ecs';
 import { generateWorldMap, cellToWorld, circleOverlapsWall } from '../src/worldmap';
-import { stepSimulation, setAttackTokens } from '../src/systems';
+import { stepSimulation, setAttackTokens, emitNoise, performAttack } from '../src/systems';
 import { generateWeapon } from '../src/weapons';
 
 let fails = 0;
@@ -364,8 +364,87 @@ const run = (map: ReturnType<typeof generateWorldMap>, ticks: number) => {
 
   shoot(map, hit);
   check('hit: the target is roused', hit.brain!.alert > 0.9 && !!hit.brain!.lastSeen);
-  check('hit: nearby packmate surges too', mate.brain!.alert > 0.9);
   check('hit: rousing is memory, not sight', hit.brain!.perceives === false);
+  // A hit is a DIRECTION, not an address: the mob looks up the line the shot
+  // came from, no further than its own sight (4 here) — it must NOT be
+  // handed the player's position 20+ units away.
+  const looked = Math.hypot(hit.brain!.lastSeen!.x - hit.pos!.x, hit.brain!.lastSeen!.z - hit.pos!.z);
+  check('hit: looks up the line, not at the player', looked <= 4.01, `looked ${looked.toFixed(1)} of sight 4`);
+  // And it learns it alone. What reaches the pack is the SOUND of the shot,
+  // which this synthetic projectile never made (no startAttack, no muzzle).
+  check('hit: the packmate is not told telepathically', mate.brain!.alert === 0);
+}
+
+// --- 10b. Noise: a bang sends whoever hears it to the BANG, not to the player.
+{
+  const map = reset(111);
+  const open = openCell(map, 6);
+  const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+  const spot = map.floors.find(
+    (f) =>
+      Math.hypot(cellToWorld(f.x) - p.pos!.x, cellToWorld(f.z) - p.pos!.z) > 20 &&
+      !circleOverlapsWall(map, cellToWorld(f.x), cellToWorld(f.z), 2.5),
+  )!;
+  const near = makeMob(cellToWorld(spot.x), cellToWorld(spot.z), { sight: 4, fov: 0.5, hearing: 3, alert: 0 });
+  const far = makeMob(cellToWorld(spot.x) + 14, cellToWorld(spot.z), { sight: 4, fov: 0.5, hearing: 3, alert: 0 });
+  run(map, 6);
+  check('noise: quiet before the bang', near.brain!.alert === 0 && far.brain!.alert === 0);
+
+  // A shell lands 3 units from `near` — nowhere near the player.
+  const bx = near.pos!.x + 3;
+  const bz = near.pos!.z;
+  emitNoise(bx, bz, 10);
+  stepSimulation(map, 1 / 60);
+
+  check('noise: whoever hears it is roused', near.brain!.alert > 0.9 && !!near.brain!.lastSeen);
+  const toBang = Math.hypot(near.brain!.lastSeen!.x - bx, near.brain!.lastSeen!.z - bz);
+  check('noise: they go to the crater, not to the player', toBang < 0.01, `${toBang.toFixed(2)} from the bang`);
+  check('noise: out of earshot hears nothing', far.brain!.alert === 0);
+  check('noise: hearing a bang is not seeing you', near.brain!.perceives === false);
+}
+
+// --- 10b-ii. A jet is the quiet gun: same shot, fewer heads turn.
+{
+  /** Fire one player attack with `w` and count who woke up. Ears are equal
+   *  and generous; the only variable is what the gun sounds like. */
+  const rousedBy = (delivery: 'bolt' | 'jet') => {
+    const map = reset(555);
+    const open = openCell(map, 6);
+    const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+    // Hand-built so the two guns differ ONLY in delivery — a generated pair
+    // would differ in damage too, which is half of what loudness reads.
+    const w = { ...generateWeapon('ranged', 1, 8), delivery, damage: 4, blastRadius: 0, count: 1, reach: 6 };
+    p.weapon = w;
+    // A line of deaf-blind listeners walking away from the muzzle, so the
+    // count is a direct read of how far the bang carried.
+    const ears = [2, 4, 6, 8, 10, 12].map((d) =>
+      makeMob(p.pos!.x, p.pos!.z + d, { sight: 0.1, fov: 0.1, hearing: 3, alert: 0 }),
+    );
+    run(map, 3);
+    performAttack();
+    run(map, 2);
+    return ears.filter((m) => m.brain!.alert > 0).length;
+  };
+  const loud = rousedBy('bolt');
+  const quiet = rousedBy('jet');
+  check('jet: a bolt of the same numbers wakes the neighbourhood', loud >= 3, `${loud}/6 roused`);
+  check('jet: steam wakes fewer of them', quiet < loud, `${quiet}/6 vs ${loud}/6`);
+}
+
+// --- 10c. Standing still is quiet: the same mob, the same distance, moving or not.
+{
+  const map = reset(4242);
+  const open = openCell(map, 6);
+  const p = makePlayer(cellToWorld(open.x), cellToWorld(open.z));
+  // Blind (fov 0 can still face-test true, so point it away and keep sight
+  // short): this case is about ears only. 2.4 is inside the 3.0 ring but
+  // outside the ~0.9 a motionless player leaves of it.
+  const m = makeMob(p.pos!.x + 2.4, p.pos!.z, { sight: 0.1, fov: 0.1, hearing: 3, alert: 0 });
+  run(map, 3);
+  check('quiet: a motionless player goes unheard', m.brain!.perceives === false);
+  p.vel!.x = 5; // sprinting, in place — the check is the noise, not the travel
+  stepSimulation(map, 1 / 60);
+  check('quiet: a sprinting one does not', m.brain!.perceives === true);
 }
 
 // --- 11. Traits produce visibly different temperaments from one code path.

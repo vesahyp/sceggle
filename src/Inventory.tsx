@@ -59,7 +59,7 @@ export function Inventory({
             </div>
             <div className="inv-stats">
               dmg {w.damage} · {w.rate}/s · range {w.reach}
-              {w.delivery === 'lob' ? ' · lob' : ''}
+              {w.delivery !== 'bolt' ? ` · ${w.delivery}` : ''}
               {w.count > 1 ? ` · ×${w.count} shots${w.spread > 0.2 ? ' (wide)' : ''}` : ''}
               {w.pierce ? ' · pierce' : ''}
               {w.blastRadius > 0 ? ` · blast ${w.blastRadius}` : ''}

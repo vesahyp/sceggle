@@ -91,14 +91,17 @@ they land (git history is the changelog).
   pool (`App.spawnDestructibles`) should fold into the same area budget.
 - **Done when:** no spawn-count/level constants remain in `App.spawnMobs`.
 
-### 2. Footsteps & noise (the mechanic)
-- The visualization shipped (player footstep ripples, mob hearing rings);
-  now make it true: **footstep weight** on every mover, noise radius scaling
-  with weight and speed, and mob *hearing* reacting to emitted noise instead
-  of raw proximity — standing still is quiet; sprinting past a wall isn't.
-- Actual footstep audio (first sound in the game).
-- **Done when:** the ripple you see IS the noise mobs hear — walking slowly
-  past a hearing ring that sprinting would have tripped.
+### 2. Noise, the rest of it
+- The mechanic landed for the player: shots and detonations raise
+  disturbances mobs investigate (`emitNoise`), and how far the player is
+  heard scales with how fast they're moving. What's missing is **footstep
+  weight on every mover** — mobs make no noise at all today, so a pack can't
+  be heard coming and a heavy elite sounds like nothing.
+- Noise should carry differently through terrain: right now radius is radius,
+  and a wall between you and the bang costs it nothing.
+- Actual footstep audio (first sound in the game), and a bang the player can
+  hear as well as see.
+- **Done when:** you can hear a pack before you see it, and cover muffles.
 
 ### 3. Minimap of observed enemies
 - Corner minimap: terrain you've seen (discovery memory) plus the last
@@ -115,6 +118,21 @@ they land (git history is the changelog).
   flat from level).
 - **Done when:** two drops from the same mob level can differ in rarity,
   visibly.
+
+## Chores
+
+### postcss ≥ 8.5.23 (GHSA-fxqj-rqcc-2cmp)
+- Dependabot flags `postcss@8.5.20`, a dev-only transitive of vite: attacker
+  CSS with a crafted `sourceMappingURL` can read arbitrary `.map` files when
+  PostCSS runs without `from`. Not reachable here — vite compiles our own
+  `src/styles.css` with `from` set — so this is alert hygiene, not urgency.
+- Blocked until **2026-08-08** by `min-release-age=14` in `~/.npmrc`: the
+  first patched version (8.5.23, published 2026-07-24) is younger than the
+  gate, so `npm audit fix` silently caps at the still-vulnerable 8.5.22.
+  Don't override the gate to grab a fresher release — the supply-chain guard
+  is worth more than this advisory.
+- **Done when:** `npm update postcss` (no flags) lands ≥ 8.5.23 inside
+  vite's `^8.5.16` range and `npm audit` is clean, package.json untouched.
 
 ## Later
 

@@ -2,16 +2,12 @@ import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { AdditiveBlending, Color, InstancedMesh, Object3D } from 'three';
 import type { Entity } from '../ecs';
+import { moveLoudness } from '../systems';
 
 /** A stride's worth of ground per footfall (at player speed ~3.5 steps/s). */
 const STRIDE = 0.85;
 const LIFE = 0.55;
 const MAX = 12;
-/** Speeds bounding the loudness ramp: at or below WALK a footfall looks like
- *  the quiet baseline; at RUN (full player speed) it lands bigger and
- *  brighter. Touch is analog, so the whole range is reachable. */
-const WALK_SPEED = 2.5;
-const RUN_SPEED = 5;
 
 // Lay the ring flat via per-instance rotation (the JSX geometry is XY).
 const dummy = new Object3D();
@@ -22,10 +18,12 @@ const color = new Color();
  * Footstep ripples: while the player moves, every STRIDE of ground covered
  * plants a footfall — alternating slightly left/right of the direction of
  * travel — that expands as a fading ring, bigger and brighter the faster
- * the foot was moving when it landed. It's the "I am making noise"
- * readout opposite the mobs' hearing rings (one day it will BE the noise
- * system; today it's honest theater). Instanced + additive so a sprint's
- * trail is one draw call of soft glows.
+ * the foot was moving when it landed.
+ *
+ * The size is not decoration any more: it comes from `moveLoudness`, the
+ * same curve perception scales every mob's hearing ring by. The ripple you
+ * see IS the noise they hear. Instanced + additive so a sprint's trail is
+ * one draw call of soft glows.
  */
 export function Footsteps({ entity }: { entity: Entity }) {
   const mesh = useRef<InstancedMesh>(null);
@@ -48,8 +46,7 @@ export function Footsteps({ entity }: { entity: Entity }) {
         // Feet land beside the line of travel, not on it.
         const ox = (-vel.z / speed) * 0.13 * side.current;
         const oz = (vel.x / speed) * 0.13 * side.current;
-        const loud = Math.min(1, Math.max(0, (speed - WALK_SPEED) / (RUN_SPEED - WALK_SPEED)));
-        ripples.current.push({ x: pos.x + ox, z: pos.z + oz, t: 0, loud });
+        ripples.current.push({ x: pos.x + ox, z: pos.z + oz, t: 0, loud: moveLoudness(speed) });
         if (ripples.current.length > MAX) ripples.current.shift();
       }
     } else {

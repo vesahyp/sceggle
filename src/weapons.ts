@@ -24,6 +24,8 @@ import * as ROT from 'rot-js';
  * - `hitRadius`  ranged: projectile impact radius
  * - `pierce`     ranged: the projectile passes through mobs it hits
  * - `count`      ranged: projectiles per shot, fired in a fan
+ * - `delivery`   ranged archetype, rolled before the points are spent:
+ *                `bolt` straight-shooter · `lob` mortar · `jet` steam spray
  *
  * Mobs resist knockback and stagger from their own point pool (see
  * App.spawnMobs) — weapon numbers are what lands on a resistance-free
@@ -134,8 +136,11 @@ export interface WeaponDef {
   blastRadius: number;
   /** How the shot travels. 'bolt' flies straight and hits what it meets;
    *  'lob' arcs OVER walls and bodies and lands at the aim point (clamped
-   *  to reach), always detonating — the mortar/area-denial archetype. */
-  delivery: 'bolt' | 'lob';
+   *  to reach), always detonating — the mortar/area-denial archetype;
+   *  'jet' sprays a short wide cone of slow puffs that pass through bodies
+   *  — the steam archetype: quiet, point-blank, and it hits a crowd rather
+   *  than a target. */
+  delivery: 'bolt' | 'lob' | 'jet';
   /** Seconds the landing zone keeps burning the ground (lob only; 0 = the
    *  blast is all there is). */
   linger: number;
@@ -200,10 +205,31 @@ const MAX_AOE = 2;
  *  zone burning longer. */
 const LINGER_COST = 3;
 const MAX_LINGER = 2;
-/** Share of ranged rolls that come out as lobbers. */
-const LOB_CHANCE = 0.35;
+/** Shares of the ranged roll that come out as each non-bolt archetype; the
+ *  rest are bolts. One uniform draw picks between them. */
+const LOB_CHANCE = 0.3;
+const JET_CHANCE = 0.2;
+/** Jet shaping — the steam archetype is the same point spend read through a
+ *  different nozzle: short, fast, weak per puff, and wide. It earns its
+ *  keep by hitting several bodies at once, at a range where several bodies
+ *  can also reach you. */
+const JET_REACH_SCALE = 0.45;
+const JET_REACH_CAP = 5.5;
+const JET_RATE_SCALE = 1.45;
+const JET_RATE_CAP = 3.0;
+const JET_DAMAGE_SCALE = 0.28;
+/** Puffs per pull before any multishot purchase — a jet is a spray by
+ *  definition, so the fan is free rather than bought. */
+const JET_BASE_PUFFS = 3;
+/** Slow, fat puffs: they billow instead of snapping out, and the wide body
+ *  is what makes a low-damage cone connect at all. */
+const JET_SPEED_SCALE = 0.5;
+const JET_RADIUS_SCALE = 2.5;
 /** Share of the pool the specialty stats soak up. */
 const SPECIALTY_SHARE = 0.65;
+/** The stats that make a weapon a weapon. One of these ALWAYS leads the
+ *  specialty roll — see the note in generateWeapon. */
+const OFFENSE_KEYS = ['damage', 'rate'];
 /** Chance a roll sells one non-specialty stat below base to fund the rest. */
 const SELL_CHANCE = 0.35;
 /** A sold stat never drops below this fraction of its base. */
@@ -222,13 +248,32 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
   let aoe = 0;
   let lingerRank = 0;
   // Delivery is an archetype roll, not a purchase — it decides what the gun
-  // IS (straight-shooter vs mortar) before points decide how good it is.
-  const delivery: 'bolt' | 'lob' =
-    kind === 'ranged' && ROT.RNG.getUniform() < LOB_CHANCE ? 'lob' : 'bolt';
+  // IS (straight-shooter vs mortar vs steam jet) before points decide how
+  // good it is. One draw, so the stream cost doesn't depend on the outcome.
+  const deliveryRoll = ROT.RNG.getUniform();
+  const delivery: WeaponDef['delivery'] =
+    kind !== 'ranged'
+      ? 'bolt'
+      : deliveryRoll < LOB_CHANCE
+        ? 'lob'
+        : deliveryRoll < LOB_CHANCE + JET_CHANCE
+          ? 'jet'
+          : 'bolt';
   let pool = budget;
 
-  // Specialties first: 1–2 stats take the lion's share of the budget.
-  const specialties = ROT.RNG.shuffle([...rampKeys]).slice(0, ROT.RNG.getUniformInt(1, 2));
+  // Specialties first: 1–2 stats take the lion's share of the budget, and
+  // an OFFENSE stat always leads. Without that rule the two thirds of the
+  // pool routinely landed in knockback/reach/speed and the roll came out a
+  // 1-damage base-cadence prop no matter how rich it was: a 16-point elite
+  // drop measured 1.5 dps against a 16-point starter's 12, because only the
+  // starter was best-of-N filtered. Budget was never the difference —
+  // whether any of it reached damage or rate was. Which offense stat leads
+  // (and where the rest goes) is still the roll: hard-hitter vs pepperbox.
+  const lead = OFFENSE_KEYS[ROT.RNG.getUniformInt(0, OFFENSE_KEYS.length - 1)];
+  const specialties = [lead];
+  if (ROT.RNG.getUniformInt(1, 2) === 2) {
+    specialties.push(ROT.RNG.shuffle(rampKeys.filter((k) => k !== lead))[0]);
+  }
   const others = rampKeys.filter((k) => !specialties.includes(k));
 
   // Maybe hock a non-specialty stat for extra points to spend elsewhere.
@@ -249,9 +294,11 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
   const keys = [...rampKeys];
   if (kind === 'ranged') {
     keys.push('multishot', 'aoe');
-    // Pierce means nothing to a shell that flies over bodies; lobs buy
-    // longer ground fire instead.
-    keys.push(delivery === 'lob' ? 'linger' : 'pierce');
+    // Pierce means nothing to a shell that flies over bodies, and a jet
+    // already passes through them; lobs buy longer ground fire instead, and
+    // jets buy nothing there — their spend goes into the spray.
+    if (delivery === 'lob') keys.push('linger');
+    else if (delivery === 'bolt') keys.push('pierce');
   }
   // Guard bounds the loop even if RNG keeps landing on unaffordable flat
   // purchases; in practice it exits when the pool runs dry.
@@ -294,11 +341,21 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
     return Math.max(r.base * SELL_FLOOR, r.base + (pts[key] ?? 0) * r.perPoint);
   };
   const displayLevel = levelForBudget(budget);
-  const damage = Math.max(1, Math.round(v('damage')));
-  const reach = +v('reach').toFixed(1);
-  // Lobs fly and cycle like mortars: slower shell, slower crank.
-  const speed = kind === 'ranged' ? +(v('speed') * (delivery === 'lob' ? 0.75 : 1)).toFixed(1) : 0;
-  const rate = +(v('rate') * (delivery === 'lob' ? 0.75 : 1)).toFixed(2);
+  const jet = delivery === 'jet';
+  // A jet reads the same point spend through a different nozzle: the damage
+  // arrives as a lot of weak puffs at arm's length instead of one bolt.
+  const damage = Math.max(1, Math.round(v('damage') * (jet ? JET_DAMAGE_SCALE : 1)));
+  const reach = jet
+    ? +Math.min(JET_REACH_CAP, v('reach') * JET_REACH_SCALE).toFixed(1)
+    : +v('reach').toFixed(1);
+  // Lobs fly and cycle like mortars: slower shell, slower crank. Jets crank
+  // fast (capped — past a point it stops reading as a stream and starts
+  // costing frames) and their puffs drift out slowly.
+  const speed =
+    kind === 'ranged' ? +(v('speed') * (delivery === 'lob' ? 0.75 : jet ? JET_SPEED_SCALE : 1)).toFixed(1) : 0;
+  const rate = jet
+    ? +Math.min(JET_RATE_CAP, v('rate') * JET_RATE_SCALE).toFixed(2)
+    : +(v('rate') * (delivery === 'lob' ? 0.75 : 1)).toFixed(2);
   // A lob without a bang would be a dud — every shell detonates on landing;
   // aoe ranks widen it. Bolts still need to buy their blast.
   const blastRadius =
@@ -319,15 +376,21 @@ export function generateWeapon(kind: WeaponKind, level: number, budget = weaponB
     reach,
     arc: kind === 'melee' ? +v('arc').toFixed(2) : 0,
     speed,
-    hitRadius: kind === 'ranged' ? +v('hitRadius').toFixed(2) : 0,
-    pierce,
-    count: 1 + extraShots,
+    hitRadius: kind === 'ranged' ? +(v('hitRadius') * (jet ? JET_RADIUS_SCALE : 1)).toFixed(2) : 0,
+    // Steam goes through people. Free for a jet, bought by a bolt.
+    pierce: jet ? true : pierce,
+    // A jet sprays by definition: the fan comes free and multishot widens it.
+    count: (jet ? JET_BASE_PUFFS : 1) + extraShots,
     blastRadius,
     delivery,
     linger,
     // Fan width is its own roll: the same two extra shots can be a tight
-    // burst or a shotgun cone.
-    spread: extraShots > 0 ? +(0.08 + ROT.RNG.getUniform() * 0.22).toFixed(3) : 0.12,
+    // burst or a shotgun cone. A jet is always wide — that IS the weapon.
+    spread: jet
+      ? +(0.16 + ROT.RNG.getUniform() * 0.16).toFixed(3)
+      : extraShots > 0
+        ? +(0.08 + ROT.RNG.getUniform() * 0.22).toFixed(3)
+        : 0.12,
     // Fittings grow with tier (rarity will drive this later); rolls come out
     // empty — installing mechanisms is the player's job (or the spawner's,
     // for elite mobs).
