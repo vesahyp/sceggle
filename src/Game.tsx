@@ -591,11 +591,13 @@ export function Game({
   );
 
   // Ortho zoom is CSS pixels per world unit. 42 suits a desktop monitor;
-  // on a phone that renders a mob at ~3 mm. Scale so the view spans ~15
-  // world units across the width — physically chunky, still enough lookahead
-  // to kite (your 7-unit vision just fits ahead of you).
+  // touch scales so the view spans ~15 world units across the width — the
+  // 14-unit vision circle fits with margin, which is the minimum for kiting
+  // to be playable. The old floor of 46 px/unit silently won on every
+  // phone (390 px / 46 ≈ 8.5 units: a keyhole narrower than your own
+  // vision); 24 is the new floor where a mob still reads at a glance.
   const zoom = useConstant(() =>
-    isCoarse ? Math.min(64, Math.max(46, Math.round(window.innerWidth / 15))) : 42,
+    isCoarse ? Math.min(42, Math.max(24, Math.round(window.innerWidth / 15))) : 42,
   );
 
   // The body you steer is the archetype's spend made flesh: HP, speed, and

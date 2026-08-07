@@ -50,6 +50,10 @@ function Help() {
         </li>
         <li>Touch: left thumb moves, right thumb aims and fires · ⚙ opens this menu</li>
         <li>
+          On iPhone/iPad: Add to Home Screen and launch from there — the game runs fullscreen
+          without the browser bars.
+        </li>
+        <li>
           <kbd>1</kbd> dev: roll a gun into hand · <kbd>2</kbd> dev: a random cog into the pack
         </li>
       </ul>
