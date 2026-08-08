@@ -19,7 +19,7 @@ import { mobs, type Entity } from '../ecs';
 import type { WeaponDef } from '../weapons';
 import { circleOverlapsWall, worldToCell, type GameMap } from '../worldmap';
 import { keyboard } from '../input';
-import { touch, FIRE_ON } from '../touch';
+import { touch, DEAD_ZONE } from '../touch';
 import { performAttack, meleeHitBand, bladeAngle, viewFx } from '../systems';
 import { Weapon } from './Weapon';
 import { HealthBar } from './HealthBar';
@@ -91,8 +91,12 @@ const arcDot = new Object3D();
  *  off, so releasing here throws nothing. */
 const AIM_GOLD = '#ffd166';
 const AIM_DEAD = '#ff5a5a';
-/** Shortest throw a stick flick can make (world units from the muzzle). */
-const LOB_MIN_DIST = 2.5;
+/** Shortest throw there is. Below this the sim's own clamp (systems:
+ *  `max(0.9, aimDist - MUZZLE)`) pins every shell to the same spot, so
+ *  bottoming the stick's travel out here means the reticle stops exactly
+ *  when the shell stops caring — no stretch of thumb travel that moves
+ *  nothing. */
+const LOB_MIN_DIST = 1.5;
 
 /**
  * Player: a capsule steered by held keys. The view writes input into
@@ -218,17 +222,17 @@ export function Player({ entity, weapon, map }: { entity: Entity; weapon: Weapon
     //     projected onto the body-height ground plane. ---
     if (touch.aim.active) {
       entity.aim = assistAim(pos, touch.aim.x, touch.aim.z, weapon.reach);
-      // No cursor on touch, so a lob's throw distance rides the stick:
-      // barely past the trigger lands short, full deflection reaches out to
-      // the gun's range. Only an ARMED stick moves the landing spot — easing
-      // back toward center is the cancel gesture, and the preview should
-      // hold where it was (turning red) instead of collapsing inward.
+      // No cursor on touch, so a lob's throw distance rides the stick: the
+      // dead-zone edge lands as short as the shell can be thrown, full
+      // deflection reaches the gun's range. It tracks the WHOLE way in,
+      // including through the red cancel zone — the throw distance and the
+      // trigger are two readouts of one thumb, and freezing the reticle at
+      // whatever range the trigger happened to drop at read as a jam.
+      // Red still means it won't fire; it just doesn't stop moving.
       if (weapon.delivery === 'lob') {
-        if (touch.aim.fire) {
-          const near = Math.min(LOB_MIN_DIST, weapon.reach);
-          const t = Math.max(0, (touch.aim.mag - FIRE_ON) / (1 - FIRE_ON));
-          entity.aimDist = near + (weapon.reach - near) * t;
-        }
+        const near = Math.min(LOB_MIN_DIST, weapon.reach);
+        const t = Math.min(1, Math.max(0, (touch.aim.mag - DEAD_ZONE) / (1 - DEAD_ZONE)));
+        entity.aimDist = near + (weapon.reach - near) * t;
       } else {
         entity.aimDist = weapon.reach;
       }

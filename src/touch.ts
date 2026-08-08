@@ -25,7 +25,9 @@ export interface StickVisual {
 }
 
 const RADIUS = 70; // px from base to full deflection
-const DEAD_ZONE = 0.18; // fraction of RADIUS
+/** Slop around the base that reads as "centered" — below it a stick reports
+ *  no direction, and a lob's throw distance is at its floor. */
+export const DEAD_ZONE = 0.18; // fraction of RADIUS
 /** Trigger hysteresis: firing starts past ON and keeps going until the
  *  stick drops under OFF (or the thumb lifts). A single threshold made
  *  fire flicker off whenever the thumb eased toward center mid-hold. */
