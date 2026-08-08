@@ -121,18 +121,19 @@ they land (git history is the changelog).
 
 ## Chores
 
-### postcss ≥ 8.5.23 (GHSA-fxqj-rqcc-2cmp)
-- Dependabot flags `postcss@8.5.20`, a dev-only transitive of vite: attacker
-  CSS with a crafted `sourceMappingURL` can read arbitrary `.map` files when
-  PostCSS runs without `from`. Not reachable here — vite compiles our own
-  `src/styles.css` with `from` set — so this is alert hygiene, not urgency.
-- Blocked until **2026-08-08** by `min-release-age=14` in `~/.npmrc`: the
-  first patched version (8.5.23, published 2026-07-24) is younger than the
-  gate, so `npm audit fix` silently caps at the still-vulnerable 8.5.22.
-  Don't override the gate to grab a fresher release — the supply-chain guard
-  is worth more than this advisory.
-- **Done when:** `npm update postcss` (no flags) lands ≥ 8.5.23 inside
-  vite's `^8.5.16` range and `npm audit` is clean, package.json untouched.
+### nanoid ≥ 3.3.17 (GHSA-2v37-7h3g-55p8)
+- The postcss half of this landed (8.5.20 → 8.5.23, closing
+  GHSA-fxqj-rqcc-2cmp). Bumping it surfaced the next one down the tree:
+  `postcss@8.5.23` pulls `nanoid@^3.3.16`, and 3.3.16 is flagged high — a
+  custom generator called with size zero loops forever.
+- Not reachable here either, and for the same reason as its parent: dev-only,
+  build-time, and postcss calls plain `nanoid()` with no attacker-controlled
+  size. Alert hygiene.
+- Blocked until **~2026-08-17** by `min-release-age=14` in `~/.npmrc` — the
+  fix (3.3.17) was published 2026-08-03. Same rule as last time: don't
+  override the gate to grab it early. `npm update nanoid` (no flags) will
+  take it once it ages in.
+- **Done when:** `npm audit` is clean, package.json untouched.
 
 ## Later
 
