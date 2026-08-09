@@ -1,98 +1,37 @@
 # sceggle
 
-A top-down hack-slash-loot — code-first, minimal, own-the-loop.
+Steam, cogs, and a great many things that want you dead.
 
-**▶ Play: https://vesahyp.github.io/sceggle/** — every merge to `master` publishes a new build via GitHub Actions.
+**▶ Play: https://vesahyp.github.io/sceggle/**
 
-> Reboot of a 2016 WebGL scene-graph experiment. Rather than build a renderer
-> from scratch on the (now-defunct) stack.gl toolchain, this version composes a
-> game from modern, maintained libraries. The original code is preserved under
-> [`legacy/`](./legacy).
+You start at one end of a field. The way out is at the other end, and it's guarded. In between: ruins to break line of sight, grass to crawl through, barrels that go off like artillery, and a horde that hunts you by sight and sound.
 
-## Stack
-
-| Concern | Library |
-|---|---|
-| Rendering / scene graph | [three.js](https://threejs.org) via [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) |
-| Movement & collision | tiny in-house kinematic sim (circle-vs-grid) — no physics engine |
-| Entities / composition | [Miniplex](https://github.com/hmans/miniplex) ECS |
-| Map gen, pathfinding, RNG | [rot.js](https://ondras.github.io/rot.js/hp/) |
-| Build / dev server | [Vite](https://vitejs.dev) + TypeScript |
-
-## Run
-
-```bash
-npm install
-npm run dev      # http://localhost:5173
-```
-
-`npm run build` type-checks and produces a production bundle.
+Shoot things. Take their guns. Go again with a better gun.
 
 ## Controls
 
-- **W A S D** — move · **Mouse** — aim
-- **Click / Space** — attack; *hold* to keep attacking at the weapon's rate
-  of fire. Melee swings an arc, ranged fires a projectile at the cursor
-- Walk over a drop to equip it; step on the gold pad to leave the area
-- **1** — dev: reroll the weapon in hand
+**WASD** walk · **mouse** aim · **click** or **space** shoot — hold it down to keep shooting. **Esc** menu, **I** pack, **H** help.
 
-Nothing is hardcoded: weapons roll from a level-based point budget (damage,
-knockback, stagger, rate of fire, reach, projectile stats, pierce), and mobs
-roll from their own pool (hit points, move speed, resistances, weapon
-budget). Player and mobs share **one combat system**: melee is a swept
-strike — the blade connects only where and when it passes, within a strike
-band around its reach, so long weapons have a close-range dead zone (shown
-as the hole in your gold hit-area ring) — and ranged fires projectiles
-through the same pipeline (gold = yours, red = incoming).
+Mortars aim while you hold the button: an arc shows where the shell lands, and it fires when you let go.
 
-You see 7 units (the world fades to dark beyond); mobs see 6 with line of
-sight (their blue rings, shown while idle) and hear 4 through walls.
-Alerted mobs glow red, face you, and attack with the weapon they hold.
-Health bars float over every head, floating numbers show every hit
-(gold = dealt, red = taken), and stagger/stun shows as a status label.
-Dying respawns you at the area entry with full HP. Kill a mob and it drops
-the exact weapon it was holding.
+On a phone: left thumb walks, right thumb shoots. Add it to your home screen and it runs fullscreen.
 
-## How it's organized
+## Out there
 
-```
-src/
-  ecs.ts           Miniplex world + Entity component vocabulary
-  weapons.ts       Point-budget weapon generation (damage, knockback, stagger,
-                   rate of fire, reach, projectile stats, pierce)
-  worldmap.ts      Open-overworld generation (entry/exit) + circle-vs-grid collision
-  systems.ts       Simulation tick: perception, AI, movement, combat, loot, exit
-  events.ts        One-way sim → React bridge (deaths, pickups, area exit)
-  input.ts         Keyboard (held state + edge-triggered presses)
-  scene/           React-three-fiber render components
-    Terrain.tsx    Ground slab + instanced obstacle blocks + exit pad
-    Player.tsx     Input → velocity, camera follow, hit-area indicators
-    Mob.tsx        Leveled mob body, alert glow, sight ring, status label
-    Weapon.tsx     Held-weapon mesh — melee blade spans its true strike band
-    HealthBar.tsx  Billboarded bar above every entity with health
-    Projectiles.tsx  Instanced mesh mirroring projectile entities
-    Loot.tsx         Instanced mesh mirroring ground drops
-    DamageNumbers.tsx  Floating per-hit numbers, sized by damage
-    Vision.tsx       The player's range-of-vision fog overlay
-    Simulation.tsx   Headless per-frame sim driver
-  App.tsx          Areas, mob spawning (point pools), HUD; wires scene + input
+- No two guns are the same. Rifles that drop something before it knows you're there, scatterguns for when it already does, mortars that lob over a wall and leave the ground burning, steam jets that cook a whole front rank at arm's length.
+- Everything you kill drops the gun it was shooting you with.
+- Cogs. Pull one off a corpse, jam it into a gun, and the gun starts doing something else entirely.
+- Enemies look and listen. Stay out of the blue cone and the gold ring and you can walk straight past a pack — right up until you pull the trigger. Then they come to the noise, so throw something loud somewhere else.
+- Barrels chain. Exploders hug. Spawners keep spawning.
+- Kill enough and you level up: tougher, faster, harder to knock around, or quicker on the trigger. It's gone when the run is.
+- Every run has a number. Play the same one twice and it's the same fight, so a good one is worth passing on.
+
+Early days — the art is boxes and capsules for now.
+
+## Local
+
+```bash
+npm install && npm run dev
 ```
 
-### Design notes
-
-- **Renderer and simulation are kept separate** — sim state is `pos`/`vel`
-  components on ECS entities; scene components copy positions into meshes
-  each frame and never own game state.
-- **The hot loop is imperative.** The sim tick, movement, and camera run in
-  `useFrame`, mutating refs directly; React state is never touched per frame.
-- **Composition is declarative.** Equipment is a component on an entity;
-  swapping a weapon is a prop change, and the mesh mounts/disposes itself.
-- **Determinism** — the sim is pure JS and all randomness is seeded rot.js
-  RNG, so the same seed reproduces the same run.
-
-## Next steps
-
-See [`ROADMAP.md`](./ROADMAP.md) — inventory UI, a main menu with character
-creation and a world seed, area difficulty budgets, footsteps-based hearing,
-a minimap of observed enemies, then rarity and the fittings-and-cogs
-upgrade system.
+Notes for anyone working on the code: [`CLAUDE.md`](./CLAUDE.md) · what's next: [`ROADMAP.md`](./ROADMAP.md)

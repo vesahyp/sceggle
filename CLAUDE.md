@@ -6,8 +6,11 @@ Guidance for AI agents working in this repo.
 
 **sceggle** is a top-down 3D hack-slash-loot (web). It began as a 2016 stack.gl
 scene-graph experiment (preserved under `legacy/`, do not build on it) and was
-rebooted onto a modern stack. See `README.md` for the pitch and `ROADMAP.md`
-for what to build next.
+rebooted onto a modern stack — rather than hand-write a renderer on the
+now-defunct stack.gl toolchain, this version composes the game from
+maintained libraries. `README.md` is the player-facing page (what the game is,
+controls, mechanics); keep code, architecture and process notes here instead.
+`ROADMAP.md` is what to build next.
 
 ## Stack
 
@@ -95,3 +98,9 @@ legacy/         Original 2016 code — reference only, don't extend
   shipped, and duplicating it there just creates a second copy that rots.
 - Placeholders (capsules, boxes) are intentional; don't gold-plate visuals
   unless that's the task.
+- Deploy is automatic: every push to `master` builds and publishes to GitHub
+  Pages (`.github/workflows/deploy.yml`) at
+  https://vesahyp.github.io/sceggle/ — a broken `master` is a broken live
+  build.
+- When a change alters what the *player* does or sees (controls, a mechanic,
+  an archetype), update `README.md` too — in player words, not code words.
