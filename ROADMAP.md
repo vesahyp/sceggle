@@ -143,9 +143,18 @@ they land (git history is the changelog).
 - Revisit soft death (currently: respawn at the area entry with full HP) —
   add a real run-over state or a death cost.
 
-### 6. Lighting & readability pass
-- The field is murky; rarity colors and the sense-visualization layers
-  (cones, rings, ripples) need to read at a glance without adding clutter.
+### 6. Readability pass
+- Lighting is done (key/fill/sky, shadows that follow the player, contact AO
+  baked into the floor). What's left is **color**, and it's the bigger half
+  of why the field reads murky:
+  - The rolled biome palette is very dark — ground sits at ~16% lightness,
+    rock at ~33% (`generateWorldMap`). Terrain wants to come up in value and
+    *stay* low-chroma, so that saturation belongs to things that matter.
+  - Then rarity colors and the sense-visualization layers (cones, rings,
+    ripples) have somewhere to pop against, without adding clutter.
+- Also worth a look: `VISION_RADIUS` is 7 units, so ~85% of the screen is
+  opaque black at all times. That's the stealth mechanic working as designed,
+  but it caps how much any art change can ever show.
 
 ## Someday / ideas
 

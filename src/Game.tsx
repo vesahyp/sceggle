@@ -39,6 +39,7 @@ import { seedRng } from './rng';
 import { setAttackTokens } from './systems';
 import { onGameEvent } from './events';
 import { useKeyboard } from './input';
+import { Lighting } from './scene/Lighting';
 import { Terrain } from './scene/Terrain';
 import { Player } from './scene/Player';
 import { Mob } from './scene/Mob';
@@ -818,13 +819,7 @@ export function Game({
           far={200}
         />
 
-        <ambientLight intensity={0.5} />
-        <directionalLight
-          position={[10, 20, 10]}
-          intensity={1.1}
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-        />
+        <Lighting map={map} />
 
         <Terrain map={map} />
         <Player entity={playerEntity} weapon={playerWeapon} map={map} />
