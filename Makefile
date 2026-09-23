@@ -30,7 +30,7 @@ preview: build
 	npm run preview
 
 plan:
-	$(TF) init -upgrade
+	$(TF) init
 	$(TF) plan -out=tfplan
 
 apply:
