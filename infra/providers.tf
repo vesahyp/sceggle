@@ -1,5 +1,19 @@
 terraform {
-  required_version = ">= 1.5"
+  # 1.10 is the floor: use_lockfile below is the S3-native state lock,
+  # and it does not exist before then. .mise.toml pins the exact version.
+  required_version = ">= 1.10"
+
+  # State lives in the personal backup bucket, keyed
+  # tfstate/<repo>/<stack>.tfstate, the same as keitos and jeeves.
+  backend "s3" {
+    bucket       = "vesa-backup-699166197771"
+    key          = "tfstate/sceggle/infra.tfstate"
+    region       = "eu-north-1"
+    profile      = "personal"
+    encrypt      = true
+    use_lockfile = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
