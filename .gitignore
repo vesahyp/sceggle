@@ -12,3 +12,4 @@ infra/tfplan
 infra/*.tfstate
 infra/*.tfstate.backup
 tools/dbg/
+shots/
