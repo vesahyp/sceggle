@@ -1,13 +1,13 @@
 {
-  "name": "sceggle",
-  "short_name": "sceggle",
-  "description": "Top-down horde hack-slash-loot with constructible guns",
+  "name": "Höyry",
+  "short_name": "Höyry",
+  "description": "A twin-stick looter shooter in a steampunk mill town.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
-  "orientation": "landscape",
-  "background_color": "#0f1117",
-  "theme_color": "#0f1117",
+  "orientation": "any",
+  "background_color": "#16110c",
+  "theme_color": "#16110c",
   "icons": [
     {
       "src": "./icon.svg",

@@ -394,7 +394,14 @@ function updateWaves(s: SimState, dt: number): void {
     s.wavesLeft--;
     s.waveTimer = 0;
   }
-  if (s.wavesLeft === 0 && alive === 0) {
+  // A floor stuck this long is a bug, not a fight (an enemy wedged behind
+  // geometry it cannot path around): close it instead of stalling the run.
+  if (s.floorTime > 240 && (s.wavesLeft > 0 || alive > 0)) {
+    s.wavesLeft = 0;
+    for (const e of s.enemies) killEnemy(s, e, -1);
+    s.marks.length = 0;
+  }
+  if (s.wavesLeft === 0 && s.enemies.length + s.marks.length === 0) {
     s.phase = 'clear';
     s.liftT = 0;
     s.slowmo = Math.max(s.slowmo, 0.5);
@@ -981,7 +988,10 @@ function updateLift(s: SimState, dt: number): void {
   const alive = s.heroes.filter((h) => h.alive);
   const on = alive.length > 0 && alive.every((h) => Math.hypot(h.x - a.liftX, h.y - a.liftY) < 40);
   s.liftT = on ? s.liftT + dt : Math.max(0, s.liftT - dt * 2);
-  if (s.liftT >= 0.8) {
+  // Same guard as updateWaves: a floor clear but unable to reach its own
+  // lift is a pathing bug (geometry the bot or a cornered hero cannot get
+  // out of), not a puzzle. Force it open rather than stall the run.
+  if (s.liftT >= 0.8 || s.floorTime > 240) {
     s.phase = 'done';
     s.pendingCogs = s.bossFloor ? 2 : 1;
     s.sounds.push('lift');

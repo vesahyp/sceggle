@@ -1,33 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="fi">
   <head>
     <meta charset="UTF-8" />
-    <!-- viewport-fit=cover claims the notch area; safe-area insets in CSS
-         keep UI out of it. maximum-scale/user-scalable stop pinch-zoom from
-         fighting the twin sticks. -->
+    <!-- maximum-scale and user-scalable stop pinch-zoom from fighting the
+         twin sticks; viewport-fit=cover claims the notch, and the CSS keeps
+         the HUD inside the safe-area insets. -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#0f1117" />
-    <!-- Installed-PWA is the fullscreen path on iPhone (no Fullscreen API). -->
+    <meta name="theme-color" content="#16110c" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <!-- iOS ignores SVG manifest icons — A2HS needs this PNG or the home
-         screen gets a page screenshot instead. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>sceggle — hack-slash-loot</title>
-    <!-- Analytics: beacons ride the query string of a 1x1 GIF served by
-         our CloudFront pixel host; its access logs are the datastore
-         (see infra/ and TRACKING.md). The endpoint is cross-origin
-         because the game itself ships from GitHub Pages for now. Empty
-         endpoint = tracker stays dormant; fill in the `pixel_url`
-         terraform output after `make apply`. -->
+    <title>Höyry</title>
+    <meta name="description" content="Kaksitikkuinen räiskintä höyrytehtaassa. Hullut aseet, kerros kerrokselta alas, puhelimessa ja selaimessa." />
+    <!-- Analytics: the clavesa tracker (vendored from rakka) beacons to a
+         1x1 GIF on our CloudFront; its access logs are the datastore. See
+         TRACKING.md. Off on localhost and for ?bot=1 screenshot runs. -->
     <script>
-      window.TRACKER_CONFIG = { endpoint: "https://duxl7vhiagvqm.cloudfront.net/t.gif" };
+      window.TRACKER_CONFIG = {
+        endpoint: "https://duxl7vhiagvqm.cloudfront.net/t.gif",
+        enabled: !/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !/[?&]bot=1/.test(location.search)
+      };
     </script>
     <script defer src="/tracker.js"></script>
   </head>

@@ -251,6 +251,23 @@ export function generateArena(seed: number, floor: number, boss: boolean): Arena
     return n === open;
   };
 
+  // A walkable tile with WALL on both opposite sides is a corridor one tile
+  // wide. A hero fits through it, but the biggest enemies do not (their
+  // radius is more than half a tile), so they wedge against the wall
+  // forever and the floor can never clear. Crates and barrels pinch the
+  // same way but are destructible, so they are not a permanent trap.
+  const hasWallPinch = (): boolean => {
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const t = tiles[y * w + x];
+        if (t === WALL || t === PIT) continue;
+        if (tiles[y * w + x - 1] === WALL && tiles[y * w + x + 1] === WALL) return true;
+        if (tiles[(y - 1) * w + x] === WALL && tiles[(y + 1) * w + x] === WALL) return true;
+      }
+    }
+    return false;
+  };
+
   const stamp = (cells: [number, number, number][]): boolean => {
     const before = tiles.slice();
     for (const [x, y, t] of cells) {
@@ -259,7 +276,7 @@ export function generateArena(seed: number, floor: number, boss: boolean): Arena
       if (get(x, y) !== FLOOR) continue;
       set(x, y, t);
     }
-    if (!connected()) {
+    if (!connected() || hasWallPinch()) {
       tiles.set(before);
       return false;
     }

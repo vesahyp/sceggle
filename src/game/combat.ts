@@ -32,9 +32,26 @@ export function newId(s: SimState): number {
   return s.nextId++;
 }
 
-export function text(s: SimState, x: number, y: number, txt: string, color: string, big = false): void {
+/**
+ * A floating number. Hits on the same enemy within ~0.25s merge into one
+ * growing number instead of piling up (pass mergeId and the raw amount);
+ * everything else, like heals, is a one-off and leaves mergeId null.
+ */
+export function text(s: SimState, x: number, y: number, txt: string, color: string, big = false, mergeId: number | null = null, amount = 0): void {
+  if (mergeId !== null) {
+    for (let i = s.texts.length - 1; i >= 0; i--) {
+      const prev = s.texts[i];
+      if (prev.mergeId !== mergeId || s.time - prev.born >= 0.25) continue;
+      prev.amount += amount;
+      prev.text = String(Math.round(prev.amount));
+      prev.big = prev.big || big;
+      prev.life = Math.max(prev.life, big ? 1.1 : 0.7);
+      prev.born = s.time;
+      return;
+    }
+  }
   if (s.texts.length >= 60) s.texts.shift();
-  s.texts.push({ x: x + s.rng.range(-6, 6), y: y - 10, text: txt, color, life: big ? 1.1 : 0.7, big });
+  s.texts.push({ x: x + s.rng.range(-10, 10), y: y - 10, text: txt, color, life: big ? 1.1 : 0.7, big, mergeId, amount, born: s.time });
 }
 
 export function effect(s: SimState, kind: SimState['effects'][number]['kind'], x: number, y: number, r: number, color: string, life: number, x2 = x, y2 = y): void {
@@ -55,7 +72,7 @@ export function hurtEnemy(s: SimState, e: Enemy, dmg: number, src: HitSource): v
   }
   s.run.damageDealt += dmg;
   const crit = dmg >= 60;
-  text(s, e.x, e.y - e.r, String(Math.round(dmg)), crit ? '#ffd040' : '#ffffff', crit);
+  text(s, e.x, e.y - e.r, String(Math.round(dmg)), crit ? '#ffd040' : '#ffffff', crit, e.id, dmg);
   if (src.kb > 0 && !e.boss) {
     const dx = e.x - src.x;
     const dy = e.y - src.y;

@@ -193,6 +193,11 @@ export interface FloatText {
   color: string;
   life: number;
   big: boolean;
+  /** the enemy (or other target) this number is over, for merging repeat hits; null for one-offs like heals */
+  mergeId: number | null;
+  /** running total for a merged number; the sim time it was last added to */
+  amount: number;
+  born: number;
 }
 
 /** Short-lived drawn things with no rules: blasts, sparks, muzzle flash. */
