@@ -25,14 +25,14 @@ pick it up cold. Delete this file when the reboot merges to `master`.
 
 1. Design + ADR (committed).
 2. Sim + bot (committed). Bot reaches floor 4 to 10.
-3. Renderer, input, UI, audio, styles, index.html (typechecks; not yet
-   committed). First screenshots taken into `shots/`; not reviewed yet.
+3. View slice (committed): renderer, input, HUD, screens, audio. Screenshot
+   review fixes: banner position, slot names, merged damage numbers, no
+   one-tile corridors, 240 s floor valve.
+4. Tooling slice (committed): sim-check (9 assertions), Makefile, CLAUDE.md,
+   README, ROADMAP.
 
 ## Next slices (in order)
 
-1. Review screenshots, fix what looks wrong, commit the view slice.
-2. `tools/sim-check.ts` + Makefile (`dev`, `check`, `balance`, `shots`),
-   CLAUDE.md rewrite for the new code, README in player words.
 3. Balance pass with the bot: early deaths on floor 2 to 4 (Konemestari,
    Seppä), floor length 15 to 45 s.
 4. Feel pass: hit stop, kill pops, screen shake tuning, gun pickup flow on
