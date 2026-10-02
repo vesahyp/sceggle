@@ -1,11 +1,15 @@
-# Sceggle — dev, pixel infra, and pixel deploy.
-# The game itself deploys to GitHub Pages via .github/workflows/deploy.yml
-# on every push to master; this Makefile manages the analytics pixel host
-# (S3/CloudFront/logs, Terraform under infra/) — the pattern lifted from
-# tienoo. When sceggle gets its own domain, site hosting moves here too.
+# Höyry: dev, checks, screenshots. The game deploys from GitHub Actions on
+# every push to master; infra/ here is the analytics pixel host (and,
+# later, the site itself), the one thing this Makefile deploys.
 #
 #   make dev           # vite dev server
 #   make build         # production build -> dist/
+#   make preview       # build, then serve it locally
+#   make check         # typecheck + build + sim-check, what a commit needs green
+#   make balance       # bot runs, one line per run (FLOORS ?= 10 RUNS ?= 2 HERO ?=)
+#   make shots-setup   # once: install Playwright
+#   make shots         # phone screenshots into shots/
+#   make shots-en      # the same in English, into shots/en/
 #   make plan          # terraform plan for the pixel infra (no changes)
 #   make apply         # terraform apply (creates AWS resources)
 #   make outputs       # show terraform outputs (pixel_url etc.)
@@ -18,7 +22,7 @@ PROF     = $(if $(PROFILE),AWS_PROFILE=$(PROFILE) ,)
 AWS      = $(PROF)aws
 TF       = $(PROF)terraform -chdir=infra
 
-.PHONY: dev build preview plan apply outputs deploy-pixel
+.PHONY: dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
 
 dev:
 	npm run dev
@@ -28,6 +32,26 @@ build:
 
 preview: build
 	npm run preview
+
+check:
+	npm run typecheck
+	npm run build
+	npm run sim-check
+
+FLOORS ?= 10
+RUNS ?= 2
+HERO ?=
+balance:
+	npm run balance -- $(FLOORS) $(RUNS) $(HERO)
+
+shots-setup:
+	npm install --no-save playwright && npx playwright install chromium
+
+shots:
+	node scripts/shots.mjs
+
+shots-en:
+	node scripts/shots.mjs en
 
 plan:
 	$(TF) init

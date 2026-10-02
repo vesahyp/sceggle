@@ -1,106 +1,122 @@
 # CLAUDE.md
 
-Guidance for AI agents working in this repo.
+Guidance for AI agents working in this repo. `README.md` is the player page:
+what the game is and how to play it. Code, architecture and process notes
+live here. `ROADMAP.md` is forward-looking only.
 
 ## What this is
 
-**sceggle** is a top-down 3D hack-slash-loot (web). It began as a 2016 stack.gl
-scene-graph experiment (preserved under `legacy/`, do not build on it) and was
-rebooted onto a modern stack — rather than hand-write a renderer on the
-now-defunct stack.gl toolchain, this version composes the game from
-maintained libraries. `README.md` is the player-facing page (what the game is,
-controls, mechanics); keep code, architecture and process notes here instead.
-`ROADMAP.md` is what to build next.
+**Höyry** (Finnish for steam) is a twin-stick looter shooter for the
+browser, phones first: Brawl Stars hands, Borderlands guns, a Diablo-style
+floor-by-floor descent, set in a steampunk mill town on the rapids. Two
+thumbs: one walks, one fires. A run goes down through the works floor by
+floor to a boss every fifth floor. See `docs/design.md` for the design and
+`docs/adr/0001-reboot-on-canvas-2d.md` for why the game was rebuilt on this
+stack. The architecture is copied from the sibling game Räkkä
+(`../rakka`), which proved it on a phone first.
 
 ## Stack
 
-- **Vite + TypeScript + React** — build/dev and app shell.
-- **three.js** via **@react-three/fiber** (R3F) — rendering. `drei` for helpers.
-- **Movement/collision** — bespoke kinematic sim (`src/systems.ts` +
-  `src/worldmap.ts`, circle-vs-grid). There is deliberately **no physics
-  engine**; do not reintroduce one.
-- **Miniplex** — ECS; the game's entity/component model.
-- **rot.js** — map generation, pathfinding, seeded RNG.
+- **Vite + TypeScript + React.** React renders the menus, the HUD and the
+  overlays. The game itself never goes through React.
+- **Canvas 2D** for the game view. No engine, no WebGL library. Sprites are
+  drawn once with canvas paths and cached as images (`src/render/sprites.ts`).
+- **No physics, no ECS.** Enemies, projectiles, drops and zones are plain
+  arrays of objects on `SimState`.
+- **Seeded RNG** (`src/game/rng.ts`, mulberry32). One stream per run, on
+  the sim state. Same seed and same input replay the same run.
 
 ## Where things live
 
 ```
 src/
-  ecs.ts        Miniplex world + the Entity type (the component vocabulary)
-  rng.ts        Seeding the shared rot.js stream (hash + warm-up; seed here,
-                never ROT.RNG.setSeed directly)
-  weapons.ts    Point-budget weapon generation (no hardcoded weapons)
-  worldmap.ts   Overworld generation — open ground with rolled layout
-                archetypes + an arena spine — and circle-vs-grid collision
-  systems.ts    Simulation tick over ECS queries: perception, AI, movement,
-                shared melee swings + projectiles, loot, area exit
-  utility.ts    Mob decision-making: intents score themselves from world facts
-                weighted by per-mob traits, highest wins (no RNG, no ECS)
-  steering.ts   Context steering: desires vote on a ring of headings, terrain
-                and bodies veto, votes resolve into one direction
-  flowfield.ts  One Dijkstra expansion from the player; every mob samples the
-                gradient instead of running its own A*
-  events.ts     One-way sim → React bridge (deaths, pickups, damage, exit)
-  input.ts      Keyboard: held state + edge-triggered presses (ignores form fields)
-  characters.ts Character archetypes — preset spends of one point budget +
-                the seeded starter-gun roll
-  scene/        R3F render components (Terrain, Player, Mob, Weapon, HealthBar,
-                Projectiles, Loot, DamageNumbers, Vision, Simulation)
-  Game.tsx      One run: areas, mob spawning (point pools), HUD strip, the
-                pause overlay (pack + help); wires scene + input
-  Menu.tsx      Title screen, character/seed select, in-run pause overlay
-  App.tsx       Shell state machine: title ↔ select ↔ game; owns pause
+  game/                 the simulation, no DOM anywhere in here
+    state.ts            SimState, Hero, HeroInput, createState
+    sim.ts               newRun, startFloor, step(): heroes, waves, enemy AI,
+                         bosses, the lift, nextFloor
+    arena.ts             map generation (mirrored stamps), tile collision,
+                         the walk field, line of sight
+    guns.ts              gun rolls: type x maker x rarity, naming, gunDps
+    weapons.ts           firing shared by heroes, enemies and turrets
+                         (Shooter), projectile flight, zones
+    combat.ts            hurtEnemy, hurtHero, explode, kills, drops
+    upgrades.ts          hero stats from cogs, cog offers
+    content/
+      heroes.ts          the four playable heroes, their super and passive
+      enemies.ts         the works' cast, bosses, elite affixes
+      cogs.ts            the lift picks: rule and number changes
+      legends.ts         orange guns: a fixed type/maker and one rule
+  render/
+    renderer.ts          3/4 view, row-sorted walls, HUD-adjacent drawing
+    sprites.ts           procedural sprite cache
+  input/input.ts         twin stick touch (Brawl Stars style) + mouse/keyboard
+  ui/
+    Game.tsx             the game loop (fixed step), HUD, overlays
+    Screens.tsx          title, hero select, records, death
+    Cards.tsx            gun and cog cards
+    Update.tsx           the newer-build banner
+  audio.ts                Web Audio synth: effects and the music loop
+  records.ts             localStorage run records and bests
+  i18n.ts                the language: fi or en, t()/tr()/L()
+  version.ts             build id and the update check
 tools/
-  sim-check.ts  `npm run sim-check` — behavioural checks against the real sim
-public/         tracker.js + t.gif — self-hosted analytics (see TRACKING.md)
-infra/          Terraform: CloudFront pixel host / future site host
-legacy/         Original 2016 code — reference only, don't extend
+  sim-check.ts           npm run sim-check: gun table + assertions
+  balance.ts             npm run balance: bot runs, one line per run
+  autoplayer.ts          the bot both tools use
+  dbg/stuck.ts           map dump for a stuck floor; not committed
+scripts/shots.mjs        npm run shots: Playwright, iPhone 15, ?bot=1&speed=3
 ```
 
-## Architecture rules (follow these)
+## Rules
 
-1. **ECS is the source of truth.** Game state = components on entities in
-   `world` (`src/ecs.ts`). To add a capability, add a field to `Entity` and a
-   system that reads it — don't subclass.
-2. **Renderer reflects state; it doesn't own it.** three.js/React render from
-   the ECS. Sim state lives in `pos`/`vel` components; scene components copy
-   `pos` into meshes each frame.
-3. **Hot loop is imperative.** The sim tick and per-frame movement run in
-   `useFrame` mutating refs. Never drive per-frame simulation through React
-   state.
-4. **Structure/UI is declarative.** Spawning, equipment, and HUD are React —
-   e.g. swapping a weapon is a prop/component change, meshes mount/dispose.
-5. **Determinism.** All randomness goes through rot.js's seeded RNG. Same seed
-   must reproduce the same run.
-6. **Generated, not authored.** Content (weapons, mobs) rolls from seeded
-   point budgets — never add hardcoded rosters. Remaining constants are
-   placeholders to be swept into generation (see ROADMAP).
-7. **One combat system.** Player and mobs share the same attack code paths
-   (`advanceAttack`, the projectile pipeline). Never fork a mob-only or
-   player-only variant of a mechanic; differ by stats and target side only.
+1. **The sim is headless.** Nothing under `src/game/` may touch `window`,
+   `document`, React or audio. This is what makes `sim-check` and `balance`
+   possible. Sounds are names pushed onto `state.sounds`; the game loop
+   drains them into `audio.play`.
+2. **Fixed step.** The sim runs at `DT = 1/60` (`sim.ts`); the render loop
+   accumulates real time and calls `step` a whole number of times. Never
+   pass a frame delta into `step`.
+3. **Seeded RNG on the state.** `s.rng` is the one stream for a run. UI and
+   render code never draw from it; anything cosmetic uses its own source.
+4. **Content is data.** A new gun maker or type is numbers in `guns.ts`. A
+   new enemy is an `EnemyDef` in `content/enemies.ts` plus a wave entry. A
+   cog is a `CogDef` plus its rule, read where the rule lives through
+   `cogLevel(hero, id)`. An orange gun is a `LegendDef` in `content/legends.ts`:
+   `apply` sets its numbers, and `gun.legend` is checked where the rule
+   lives (`weapons.ts`, `combat.ts`).
+5. **Every hit goes through one of three functions.** `hurtEnemy`, `hurtHero`
+   and `explode` in `combat.ts` own damage numbers, knockback, statuses,
+   kills and drops. A new gun or cog never has to remember them.
+6. **Heroes and enemies share one firing path.** `weapons.ts`'s `Shooter`
+   is whatever holds the gun; a hero, an enemy and a turret differ only by
+   `team`, `dmgMul` and `slow` (enemy bullets fire at half speed, so they
+   are slow enough to dodge without a second code path). Never fork a
+   hero-only or enemy-only version of firing.
+7. **Two languages, English in the code.** Every player-facing string
+   exists in Finnish and English (`src/i18n.ts`): content as `L(fi, en)`,
+   UI strings as `tr(fi, en)`. The sim may call `t()` and `tr()` for its
+   banners: the language is module state with no DOM in it, so the sim
+   stays headless. Identifiers, comments and docs are English.
+8. **A hero, not the player.** `SimState.heroes` is a list, for co-op
+   later. Everything that belongs to one build (guns, hp, cogs, the super)
+   hangs off a `Hero`; what is shared (enemies, drops, the arena, the
+   camera) is on `SimState`.
 
 ## Workflow
 
-- Dev: `npm run dev` (http://localhost:5173).
-- **Verify before committing:** `npm run typecheck` and `npm run build` must
-  pass. If you touched the sim (`systems.ts`, `worldmap.ts`, `flowfield.ts`,
-  `steering.ts`, `ecs.ts`), `npm run sim-check` must pass too — it drives the
-  real `stepSimulation` headlessly over a generated map and asserts on
-  behaviour (mobs path, hold their range, surround, remember, forget, and
-  replay identically for a seed). Add a case there when you add a mechanic.
-- Smoke-testing in a browser is worth doing when you touched the *view*, but
-  note it can't check the sim: R3F's `useFrame` does not run under headless
-  Chromium in the CI/agent sandbox, so the canvas mounts clean while nothing
-  ticks. Treat "no console errors" as evidence about rendering only.
-- Keep changes scoped to one roadmap item per PR. Delete the item from
-  `ROADMAP.md` as part of the change — don't archive it in a "Done" section.
-  `ROADMAP.md` is forward-looking only; git history is the record of what
-  shipped, and duplicating it there just creates a second copy that rots.
-- Placeholders (capsules, boxes) are intentional; don't gold-plate visuals
-  unless that's the task.
-- Deploy is automatic: every push to `master` builds and publishes to GitHub
-  Pages (`.github/workflows/deploy.yml`) at
-  https://vesahyp.github.io/sceggle/ — a broken `master` is a broken live
-  build.
-- When a change alters what the *player* does or sees (controls, a mechanic,
-  an archetype), update `README.md` too — in player words, not code words.
+- `make dev` (http://localhost:5173, also on the LAN for a phone).
+- **Before committing:** `make check` (typecheck, build, `sim-check`) must
+  pass. `sim-check` prints the gun table first; read it when you touched a
+  gun maker, type or rarity curve.
+- **Balance with `make balance [FLOORS=10] [RUNS=2] [HERO=]`.** The bot
+  kites and takes better guns but has no plan. A change that moves the
+  bot's average floor moves the player's run the same way.
+- `make shots` / `make shots-en` for phone screenshots (Playwright, iPhone
+  15, `?bot=1&speed=3&seed=`), never from a hand-held browser.
+- `make plan` and `make apply` for `infra/`: the analytics pixel host
+  (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`.
+- Deploy is automatic: every push to `master` builds and publishes to
+  GitHub Pages (`.github/workflows/deploy.yml`) at
+  https://vesahyp.github.io/sceggle/.
+- When a change alters what the player sees or does (a control, a gun
+  rule, a cog, a hero), update `README.md` in player words.
