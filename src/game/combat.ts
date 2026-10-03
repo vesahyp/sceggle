@@ -1,5 +1,5 @@
 import { t } from '../i18n';
-import { BARREL, CRATE, FLOOR, T, lineOfSight } from './arena';
+import { BARREL, CRATE, FLOOR, T, lineOfSight, moveCircle } from './arena';
 import { rollGun, rollRarity, RARITY_COLOR } from './guns';
 import { ENEMIES } from './content/enemies';
 import type { Hero, SimState } from './state';
@@ -150,8 +150,10 @@ export function hurtHero(s: SimState, h: Hero, dmg: number, x: number, y: number
     const dx = h.x - x;
     const dy = h.y - y;
     const dd = Math.hypot(dx, dy) || 1;
-    h.x += (dx / dd) * kb * 0.06;
-    h.y += (dy / dd) * kb * 0.06;
+    // Through moveCircle, not a straight teleport: a hard hit near a wall
+    // used to shove the hero past it, into geometry nothing else can reach
+    // (a floor that then never clears; see docs/reboot-notes.md).
+    moveCircle(s.arena, h, h.r, (dx / dd) * kb * 0.06, (dy / dd) * kb * 0.06);
   }
   // The relief valve: once a floor, under a third of health, a blast.
   if (cogLevel(h, 'vaali') > 0 && !h.valveUsed && h.hp > 0 && h.hp < h.stats.maxHp / 3) {

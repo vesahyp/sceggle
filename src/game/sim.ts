@@ -11,10 +11,14 @@ import { fireBursts, maxAmmo, tickHeld, tryAttack, updateProjectiles, updateZone
 
 export const DT = 1 / 60;
 
-/** Enemy toughness and bite by floor. Your guns grow 13% a floor (guns.levelMul); this grows faster, so loot is not optional. */
+/** Enemy toughness and bite by floor. Your guns grow 13% a floor (guns.levelMul); this grows faster, so loot is not optional.
+ * The quadratic term was 0.012: by floor 11 that made enemies 4.2x tougher
+ * while a kept-up gun was only ~2.4x harder hitting, so mid-run fights (and
+ * especially turrets and bosses) dragged past the 240s floor valve. 0.007
+ * keeps hp outpacing a level-only gun, just not by as much. */
 export function hpMul(floor: number): number {
   const f = floor - 1;
-  return 1 + 0.2 * f + 0.012 * f * f;
+  return 1 + 0.2 * f + 0.007 * f * f;
 }
 export function dmgMul(floor: number): number {
   return 1 + 0.085 * (floor - 1);

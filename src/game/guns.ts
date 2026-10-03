@@ -203,9 +203,15 @@ export function hold(gun: Gun): Held {
   return { gun, ammo: gun.ammo, refill: 0, lock: 0, burstLeft: 0, burstTimer: 0, burstAngle: 0, burstReach: 1, shots: 0 };
 }
 
-/** Damage per second at a full rhythm, for comparing two guns on a card. */
+/** Damage per second at a full rhythm, for comparing two guns on a card.
+ * Pierce and count both mean "hits more than one enemy per shot"; multiplying
+ * both compounded into a single-target estimate no gun lives up to (the
+ * Steam Lance's cone, count 7 and pierce 99, scored near a revolver's dps on
+ * the card and in the bot's picks, but against one enemy only one cone slice
+ * connects). Pierce now only adds to the estimate for a single-projectile
+ * gun; a multi-pellet gun's count already covers it. */
 export function gunDps(g: Gun): number {
-  const perShot = g.damage * g.count * g.burst * (g.blast ? 1.4 : 1) * (g.pierce > 0 ? 1 + 0.25 * Math.min(g.pierce, 3) : 1) * (g.element !== 'none' ? 1.15 : 1);
+  const perShot = g.damage * g.count * g.burst * (g.blast ? 1.4 : 1) * (g.count === 1 && g.pierce > 0 ? 1 + 0.25 * Math.min(g.pierce, 3) : 1) * (g.element !== 'none' ? 1.15 : 1);
   const cycle = Math.max(g.lockout + (g.burst - 1) * g.burstGap, g.reload);
   return perShot / cycle;
 }
