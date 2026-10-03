@@ -38,6 +38,16 @@ Kierros on laskeutuminen tehtaan läpi, kerros kerrallaan.
   violetti tai parempi.
 - **Kuolema päättää kierroksen.** Tulos on syvin kerros, sitten aika.
 
+## Tulostaulu
+
+Kun kierros päättyy toisessa kerroksessa tai syvemmällä, peli kysyy kolme
+nimikirjainta kuin flipperi ja näyttää sijasi tänään, tällä viikolla, tässä
+kuussa ja kaikkien aikojen listalla. Alkuvalikon **Tulostaulu** näyttää
+kunkin listan 25 parasta; oma paras on korostettu, ja listan ulkopuolella
+se näkyy sijoineen listan alla. Järjestys on kerros, sitten aika. Päivä
+vaihtuu keskiyöllä Suomen aikaa, viikko maanantaina. Tulos tallentuu aina
+myös laitteelle, vaikka verkkoa ei olisi.
+
 ## Aseet
 
 Ase on **tyyppi** × **valmistaja** × **harvinaisuus**, ja nimi syntyy
@@ -131,6 +141,14 @@ the last one and the lift opens, never before. Ride it and pick one of
 three cogs, a permanent rule change for the rest of the run. Every fifth
 floor is a boss, and every boss drops a purple gun or better. Death ends
 the run; the score is the deepest floor, then the time.
+
+**Leaderboard:** a run that ends on floor 2 or deeper asks for three
+initials, like a pinball machine, and shows your rank for today, this week,
+this month and all time. **Leaderboard** on the title screen lists the top
+25 of each; your best is highlighted, and when it is off the list it shows
+below with its rank. Ranked by floor, then time. The day changes at midnight
+Finnish time, the week on Monday. The score is also kept on the device, with
+or without a network.
 
 **Guns** are a type (revolver, scattergun, rifle, mortar, steam lance,
 sawblade) times a maker (Paukku & Poika for raw damage, Kipinä for an

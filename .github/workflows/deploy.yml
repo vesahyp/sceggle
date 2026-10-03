@@ -28,11 +28,13 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # The pixel: a repository variable, so a fork's build has none and
-      # beacons nowhere. See index.html.
+      # The back end: repository variables, so a fork's build has none and
+      # talks to nothing. src/config.ts and index.html explain.
       - run: npm run build
         env:
           VITE_PIXEL_URL: ${{ vars.VITE_PIXEL_URL }}
+          VITE_RECORDS_API: ${{ vars.VITE_RECORDS_API }}
+          VITE_BOARD_URL: ${{ vars.VITE_BOARD_URL }}
       - uses: actions/configure-pages@v5
         with:
           enablement: true

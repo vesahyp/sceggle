@@ -52,11 +52,15 @@ src/
   input/input.ts         twin stick touch (Brawl Stars style) + mouse/keyboard
   ui/
     Game.tsx             the game loop (fixed step), HUD, overlays
-    Screens.tsx          title, hero select, records, death
+    Screens.tsx          title, hero select, the leaderboard, death
+    Initials.tsx         three letters for the leaderboard, the rank line
     Cards.tsx            gun and cog cards
     Update.tsx           the newer-build banner
   audio.ts                Web Audio synth: effects and the music loop
   records.ts             localStorage run records and bests
+  api.ts                 the global records API client (infra/records.tf,
+                         docs/adr/0002-own-records-api.md)
+  config.ts              the back-end URLs, from the build environment only
   i18n.ts                the language: fi or en, t()/tr()/L()
   version.ts             build id and the update check
 tools/
@@ -118,12 +122,16 @@ scripts/shots.mjs        npm run shots: Playwright, iPhone 15, ?bot=1&speed=3
   handler blocks the default action of play-field touches, so a menu
   needs `data-ui` (or to be a button or inside `.overlay`) to be tappable.
 - `make plan` and `make apply` for `infra/`: the analytics pixel host
-  (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`. The
-  pixel URL reaches `index.html` only through the build environment
-  (`VITE_PIXEL_URL`): `make env` writes `.env.local` from the Terraform
-  output for builds here, and the Pages deploy reads a GitHub repository
-  variable of the same name. A clone or fork without it has the tracker
-  off. Never put the URL in a committed file.
+  (S3 + CloudFront) and the records API (DynamoDB + Lambda + HTTP API, the
+  board cached on the same CloudFront), Terraform. `make deploy-pixel`
+  uploads `t.gif`. The back-end URLs reach the build only through the
+  environment (`VITE_PIXEL_URL` in `index.html`, `VITE_RECORDS_API` and
+  `VITE_BOARD_URL` in `src/config.ts`): `make env` writes `.env.local`
+  from the Terraform outputs for builds here, and the Pages deploy reads
+  GitHub repository variables of the same names. A clone or fork without
+  them has the tracker off and local records only. Never put a URL in a
+  committed file. `infra/budget.tf` emails and pushes to the phone when
+  hoyry's tagged spend passes $20 a month.
 - Deploy is automatic: every push to `master` builds and publishes to
   GitHub Pages (`.github/workflows/deploy.yml`) at
   https://vesahyp.github.io/hoyry/.

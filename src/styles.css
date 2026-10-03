@@ -179,3 +179,24 @@ table.records .n { text-align: right; }
 .update > span { flex: 1; min-width: 0; }
 .update .btn { flex: none; white-space: nowrap; min-width: 0; padding: 8px 14px; font-size: 15px; margin: 0; }
 .update small { color: var(--muted); }
+
+/* leaderboard: initials entry, the rank line, the period tabs, my row */
+.initials { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 8px 0 16px; position: relative; z-index: 1; }
+.initials-input { position: absolute; left: 50%; top: 30px; transform: translateX(-50%); width: 188px; height: 68px; opacity: 0; font-size: 16px; }
+.boxes { display: flex; gap: 10px; }
+.box { width: 56px; height: 68px; border-radius: 10px; border: 2px solid rgba(242,230,200,0.25); background: rgba(0,0,0,0.45); font-size: 40px; font-weight: 900; color: var(--brass); display: flex; align-items: center; justify-content: center; font-family: ui-monospace, Menlo, monospace; }
+.box.active { border-color: var(--brass); box-shadow: 0 0 12px rgba(224,176,72,0.5); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { border-color: rgba(242,230,200,0.25); box-shadow: none; } }
+.ranks { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; font-weight: 700; color: var(--muted); margin: 6px 0; position: relative; z-index: 1; }
+.ranks .top { color: var(--brass); }
+.tabs { display: flex; gap: 6px; margin: 4px 0 10px; flex-wrap: wrap; justify-content: center; position: relative; z-index: 1; }
+.tab { padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(242,230,200,0.15); background: rgba(0,0,0,0.3); color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; }
+.tab.on { background: var(--brass); color: #2a1800; border-color: var(--brass); }
+.small.updated { margin: -4px 0 8px; font-size: 12px; }
+table.records td.name { font-family: ui-monospace, Menlo, monospace; font-weight: 900; letter-spacing: 0.1em; color: var(--brass); }
+table.records.global { font-size: 12.5px; }
+table.records.global th, table.records.global td { padding: 5px 5px; }
+table.records tr.me td { background: rgba(224,176,72,0.12); }
+table.records tr.best td { background: rgba(224,176,72,0.28); font-weight: 800; }
+table.records.myrow { margin-top: -10px; border-top: 2px dashed rgba(242,230,200,0.2); }
+table.records td.small { color: var(--muted); }

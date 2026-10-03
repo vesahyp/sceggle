@@ -11,6 +11,7 @@
 #   make shots         # phone screenshots into shots/
 #   make shots-en      # the same in English, into shots/en/
 #   make touch-check   # taps through the menus on an emulated phone
+#   make board-check   # the leaderboard end to end (BASE=https://... checks the live game)
 #   make plan          # terraform plan for infra/: the pixel host and the records API
 #   make apply         # terraform apply, then make env
 #   make env           # write .env.local from the Terraform outputs
@@ -24,7 +25,7 @@ PROF     = $(if $(PROFILE),AWS_PROFILE=$(PROFILE) ,)
 AWS      = $(PROF)aws
 TF       = $(PROF)terraform -chdir=infra
 
-.PHONY: env touch-check dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
+.PHONY: env board-check touch-check dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
 
 dev:
 	npm run dev
@@ -54,6 +55,10 @@ shots:
 
 touch-check:
 	node scripts/touch-check.mjs
+
+BASE ?=
+board-check:
+	node scripts/board-check.mjs $(BASE)
 
 shots-en:
 	node scripts/shots.mjs en
