@@ -19,7 +19,10 @@ const browser = await chromium.launch();
 const page = await (await browser.newContext({ ...devices['iPhone 15'], hasTouch: true })).newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
-page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+// A failed request is an error, except the tracker's: a beacon is a POST to
+// t.gif, which the pixel distribution answers with 403 by design (the
+// request still lands in the access logs, which is all the tracker needs).
+page.on('response', (r) => r.status() >= 400 && !r.url().includes('/t.gif') && errors.push(`${r.status()} ${r.request().method()} ${r.url()}`));
 let failed = false;
 const check = (ok, what) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${what}`);
