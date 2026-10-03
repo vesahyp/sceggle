@@ -246,6 +246,9 @@ export function dropGun(s: SimState, x: number, y: number, rarity: number, opts:
   if (rarity >= 3) {
     s.sounds.push(rarity >= 4 ? 'legend' : 'epic');
     effect(s, 'ring', x, y, 70, RARITY_COLOR[rarity], 0.8);
+    // A toast, not the centre banner: a floor-clear or a boss arriving
+    // already owns that spot, and a rare drop should not wait its turn.
+    s.toast = { text: t(g.name), color: RARITY_COLOR[g.rarity], life: 2.6 };
   }
 }
 

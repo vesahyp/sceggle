@@ -45,10 +45,22 @@ export class Renderer {
   camX = 0;
   camY = 0;
   private camInit = false;
+  private kickX = 0;
+  private kickY = 0;
+  /** Set by the game loop: true while the active gun's ammo is freshly
+   * empty, for a once-only red blink on its segments over the hero. */
+  ammoBlink = false;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.resize();
+  }
+
+  /** A short camera kick away from a shot fired in `angle`. View-side juice
+   * only: the game loop calls this when it sees a heavy gun's ammo drop. */
+  kick(angle: number, mag = 8): void {
+    this.kickX -= Math.cos(angle) * mag;
+    this.kickY -= Math.sin(angle) * mag;
   }
 
   resize(): void {
@@ -193,8 +205,12 @@ export class Renderer {
     this.camX += (tx - this.camX) * k;
     this.camY += (ty - this.camY) * k;
     const shake = s.shake > 0 ? Math.min(1, s.shake) * 9 : 0;
-    const camX = this.camX + (shake ? (Math.random() - 0.5) * shake : 0);
-    const camY = this.camY + (shake ? (Math.random() - 0.5) * shake : 0);
+    // The recoil kick decays fast: it reads as a flinch, not a sway.
+    const kickDecay = Math.pow(0.0006, dt);
+    this.kickX *= kickDecay;
+    this.kickY *= kickDecay;
+    const camX = this.camX + (shake ? (Math.random() - 0.5) * shake : 0) + this.kickX;
+    const camY = this.camY + (shake ? (Math.random() - 0.5) * shake : 0) + this.kickY;
     const left = camX - viewW / 2;
     const top = camY - viewH / 2;
 
@@ -501,7 +517,15 @@ export class Renderer {
           break;
         }
         case 'puff':
-          ctx.fillStyle = `rgba(220,220,220,${f * 0.5})`;
+          // A kill pop: a quick bright core so it reads as an event, then
+          // the same drifting smoke as before.
+          if (f > 0.7) {
+            ctx.fillStyle = `rgba(255,255,255,${(f - 0.7) * 1.6})`;
+            ctx.beginPath();
+            ctx.arc(ef.x, ef.y, ef.r * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = `rgba(220,220,220,${f * 0.65})`;
           for (let i = 0; i < 4; i++) {
             const an = (i / 4) * Math.PI * 2 + ef.x;
             const rr = ef.r * (1 - f) * 0.8;
@@ -511,13 +535,25 @@ export class Renderer {
           }
           break;
         case 'debris':
-          ctx.fillStyle = hexA(ef.color, Math.min(1, f * 1.5));
-          for (let i = 0; i < 7; i++) {
+          // Kill pop: small brass gear teeth kicked outward, each tumbling
+          // as it flies (a cheap rotated square reads as a gear from a
+          // phone's distance, cheaper than drawing actual teeth per frame).
+          for (let i = 0; i < 8; i++) {
             const an = hash2(Math.floor(ef.x * 3), Math.floor(ef.y), i) * Math.PI * 2;
             const sp = 0.5 + hash2(i, Math.floor(ef.x)) * 0.8;
-            const rr = ef.r * (1 - f) * sp * 1.4;
-            const z = Math.sin((1 - f) * Math.PI) * 14 * sp;
-            ctx.fillRect(ef.x + Math.cos(an) * rr - 1.5, ef.y + Math.sin(an) * rr * 0.6 - z - 1.5, 3, 3);
+            const rr = ef.r * (1 - f) * sp * 1.5;
+            const z = Math.sin((1 - f) * Math.PI) * 15 * sp;
+            const px = ef.x + Math.cos(an) * rr;
+            const py = ef.y + Math.sin(an) * rr * 0.6 - z;
+            const spin = (1 - f) * (3 + sp * 2) + an;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(spin);
+            ctx.fillStyle = hexA(ef.color, Math.min(1, f * 1.5));
+            ctx.fillRect(-2, -2, 4, 4);
+            ctx.fillStyle = hexA('#fff4d0', Math.min(0.8, f * 1.2));
+            ctx.fillRect(-2, -2, 1.4, 1.4);
+            ctx.restore();
           }
           break;
         case 'chain': {
@@ -578,6 +614,15 @@ export class Renderer {
       const sx = (d.x - left) * sc;
       const sy = (d.y - top) * sc;
       if (sx < 0 || sy < 0 || sx > W || sy > H) this.edgeArrow(ctx, sx, sy, W, H, RARITY_COLOR[d.gun.rarity]);
+    }
+    // The last wave's stragglers: a red arrow to whichever of them is off
+    // screen, so a floor never stalls on an enemy the player never saw.
+    if (s.phase === 'fight' && s.wavesLeft === 0 && s.enemies.length > 0 && s.enemies.length <= 3) {
+      for (const e of s.enemies) {
+        const sx = (e.x - left) * sc;
+        const sy = (e.y - top) * sc;
+        if (sx < 0 || sy < 0 || sx > W || sy > H) this.edgeArrow(ctx, sx, sy, W, H, '#ff4a3a');
+      }
     }
     const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -825,9 +870,11 @@ export class Renderer {
     const held = h.guns[h.active];
     const max = maxAmmo(held, h);
     const segW = (w - (max - 1) * 2) / max;
+    // Empty: blink the whole row red once, so running dry reads at a glance.
+    const blink = this.ammoBlink && held.ammo < 1 && Math.sin(this.t * 28) > 0;
     for (let i = 0; i < max; i++) {
       const sx = x - w / 2 + i * (segW + 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillStyle = blink ? 'rgba(255,60,50,0.85)' : 'rgba(0,0,0,0.65)';
       ctx.fillRect(sx - 0.5, y + 7.5, segW + 1, 4);
       const fill = i < Math.floor(held.ammo) ? 1 : i === Math.floor(held.ammo) ? held.refill : 0;
       ctx.fillStyle = h.afterburn > 0 ? '#ff9a2a' : '#ffb020';

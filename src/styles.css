@@ -65,6 +65,10 @@ h2 { margin: 0 0 12px; font-size: 24px; color: var(--brass); }
 .counts { display: flex; gap: 12px; font-weight: 800; font-size: 15px; }
 .counts .coins { color: #ffd870; }
 .counts .left { color: #ff9a80; }
+/* The last 1-3 enemies on a floor: big and pulsing, so a straggler the
+   player can't see is still something they know to go finish. */
+.counts .left.urgent { font-size: 19px; color: #ff4a3a; animation: urgentPulse 0.7s ease-in-out infinite alternate; }
+@keyframes urgentPulse { from { opacity: 0.75; } to { opacity: 1; transform: scale(1.08); } }
 .iconbtn { position: absolute; top: calc(var(--sat) + 8px); width: 42px; height: 42px; border-radius: 10px; background: rgba(20,14,8,0.6); border: 1px solid rgba(242,230,200,0.25); font-size: 16px; font-weight: 900; cursor: pointer; }
 .iconbtn.pause { right: calc(var(--sar) + 10px); }
 .iconbtn.mute { right: calc(var(--sar) + 58px); }
@@ -84,6 +88,12 @@ h2 { margin: 0 0 12px; font-size: 24px; color: var(--brass); }
   .banner .s { font-size: 12px; }
 }
 
+/* A rare drop landing: a short pill under the floor counter, well clear of
+   the centre banner (38%) and the pickup card (--sat + 158px) below it. */
+.toast { position: absolute; left: 50%; top: calc(var(--sat) + 46px); transform: translateX(-50%); pointer-events: none; animation: toastIn 2.6s ease-out forwards; z-index: 4; }
+.toast span { display: inline-block; background: var(--panel); border: 2px solid currentColor; border-radius: 20px; padding: 5px 14px; font-weight: 900; font-size: 13px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
+@keyframes toastIn { 0% { transform: translate(-50%, -8px); opacity: 0; } 12% { transform: translateX(-50%); opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+
 /* gun slots, bottom left above the move thumb's reach */
 .slots { position: absolute; left: calc(var(--sal) + 10px); top: calc(var(--sat) + 54px); display: flex; flex-direction: column; gap: 5px; }
 .slot { width: 168px; text-align: left; padding: 5px 8px; border-radius: 9px; border: 2px solid; background: rgba(20,14,8,0.6); cursor: pointer; opacity: 0.65; }
@@ -94,6 +104,9 @@ h2 { margin: 0 0 12px; font-size: 24px; color: var(--brass); }
 .slot .pips { display: flex; gap: 2px; margin-top: 3px; }
 .slot .pips i { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); }
 .slot .pips i.full { background: #ffb020; }
+/* Empty: blink once, matching the ammo segments drawn over the hero. */
+.slot .pips.blink i { animation: pipBlink 0.18s steps(1) 3; }
+@keyframes pipBlink { 50% { background: rgba(255,60,50,0.9); } }
 
 /* the super button */
 .superbtn { position: absolute; right: calc(var(--sar) + 22px); bottom: calc(var(--sab) + 120px); width: 76px; height: 76px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: conic-gradient(#ffd040 var(--charge), rgba(30,20,10,0.7) 0); border: 3px solid rgba(0,0,0,0.6); pointer-events: none; opacity: 0.85; }
@@ -112,11 +125,15 @@ h2 { margin: 0 0 12px; font-size: 24px; color: var(--brass); }
 .stick.aim { border-color: rgba(255,200,80,0.5); }
 .stick.aim > div { background: rgba(255,200,80,0.75); }
 
-/* pickup card */
-.pickup { position: absolute; left: 50%; bottom: calc(var(--sab) + 14px); transform: translateX(-50%); width: min(92vw, 340px); display: flex; flex-direction: column; align-items: stretch; animation: cardIn 0.18s ease-out; }
-.pickup .take { margin: 6px 0 0; min-width: 0; padding: 11px; font-size: 17px; }
-.pickup .take small { opacity: 0.6; font-size: 11px; margin-left: 4px; }
-@media (orientation: landscape) and (max-height: 500px) { .pickup { width: 300px; bottom: calc(var(--sab) + 6px); } .pickup .gun .traits { display: none; } }
+/* Pickup card: top centre, clear of the gun slots (bottom at roughly
+   --sat + 150px) and the pause/mute icons, so it never reaches into the
+   bottom thirds where the thumbs rest, in portrait or landscape. Compact
+   (name and rarity only, via GunCard's compact prop): there is no room
+   here for the full stat card. */
+.pickup { position: absolute; left: 50%; top: calc(var(--sat) + 158px); transform: translateX(-50%); width: min(78vw, 260px); display: flex; flex-direction: column; align-items: stretch; animation: cardIn 0.18s ease-out; }
+.pickup .take { margin: 5px 0 0; min-width: 0; padding: 8px; font-size: 14px; }
+.pickup .take small { opacity: 0.6; font-size: 10px; margin-left: 4px; }
+@media (orientation: landscape) and (max-height: 500px) { .pickup { width: 230px; top: calc(var(--sat) + 150px); } }
 .gun { text-align: left; background: var(--panel); border: 2px solid; border-radius: 12px; padding: 9px 11px; box-shadow: 0 6px 20px rgba(0,0,0,0.6); }
 .gun.r3 { box-shadow: 0 0 18px rgba(192,112,255,0.45), 0 6px 20px rgba(0,0,0,0.6); }
 .gun.r4 { box-shadow: 0 0 24px rgba(255,154,42,0.6), 0 6px 20px rgba(0,0,0,0.6); background: linear-gradient(160deg, rgba(90,50,10,0.95), var(--panel)); }

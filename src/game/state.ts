@@ -90,6 +90,15 @@ export interface Banner {
   color?: string;
 }
 
+/** A short corner toast, separate from the centre-screen banner: a rare
+ * drop landing should not fight a floor-clear or boss-arrives banner for
+ * the same patch of screen. */
+export interface Toast {
+  text: string;
+  color: string;
+  life: number;
+}
+
 export interface SpawnMark {
   kind: string;
   x: number;
@@ -131,6 +140,7 @@ export interface SimState {
   pendingCogs: number;
   flowTimer: number;
   banner: Banner | null;
+  toast: Toast | null;
   run: RunStats;
   sounds: string[];
   shake: number;
@@ -169,6 +179,7 @@ export function createState(seed: number, arena: Arena): SimState {
     pendingCogs: 0,
     flowTimer: 0,
     banner: null,
+    toast: null,
     run: { kills: 0, floor: 1, coins: 0, damageDealt: 0, bosses: 0, bestRarity: 0, guns: 0 },
     sounds: [],
     shake: 0,

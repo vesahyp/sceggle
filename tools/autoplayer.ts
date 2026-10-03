@@ -73,15 +73,40 @@ export function botInput(s: SimState, h: Hero, rng: Rng): HeroInput {
   }
 
   const range = g.range * h.stats.rangeMul;
+  // The last enemies on a floor: a player who sees "1 left" and the edge
+  // arrow goes and finishes it instead of holding its usual kiting range.
+  const straggler = s.wavesLeft === 0 && s.enemies.length <= 3;
   if (tgt && s.phase === 'fight') {
     const pref = g.type === 'lance' || g.type === 'scatter' ? range * 0.55 : range * 0.7;
     const dx = (tgt.x - h.x) / td;
     const dy = (tgt.y - h.y) / td;
     const sees = lineOfSight(s.arena, h.x, h.y, tgt.x, tgt.y);
-    if (!sees && td > 90) {
+    if (!sees) {
+      // No line of sight: always path round whatever blocks it, however
+      // close the target reads on the straight line. Gating this on a
+      // minimum distance used to let the bot settle into a blind orbit
+      // right at the edge of its kiting band, next to a wall it never
+      // walked around (a boss floor with gunners behind a pillar, seen on
+      // seed 1047 with seppa, was the one that stalled 8 seeds in).
       const f = walkTo(s, h, tgt.x, tgt.y);
       mx = f.dx;
       my = f.dy;
+    } else if (straggler) {
+      // Close in, and do not hold the usual kiting range: a safe distance
+      // is for a fight with more enemies due. Against the last one,
+      // retreating from a melee straggler that out-runs the hero (a cog
+      // rat, seed 1025 with ilmalaivuri) just traded blind chase for blind
+      // flight, forever. Only back off from point-blank (a gunner the bot
+      // walked fully on top of, seed 1022 with nuohooja, could otherwise
+      // stand muzzle-to-chest with the hero and neither side ever resolve
+      // the fight).
+      if (td > 40) {
+        mx = dx;
+        my = dy;
+      } else if (td < 20) {
+        mx = -dx;
+        my = -dy;
+      }
     } else if (td > pref + 30) {
       mx = dx;
       my = dy;
@@ -89,9 +114,12 @@ export function botInput(s: SimState, h: Hero, rng: Rng): HeroInput {
       mx = -dx;
       my = -dy;
     }
-    // Circle a little, always.
-    mx += -dy * 0.6;
-    my += dx * 0.6;
+    // Circle a little, always (but not while closing on the last enemies:
+    // the drift is what used to leave a straggler fight never quite closing).
+    if (!straggler) {
+      mx += -dy * 0.6;
+      my += dx * 0.6;
+    }
     if (td < range * 1.1 && (sees || g.type === 'mortar')) inp.fire = true;
     if (h.superCharge >= 1 && td < 220) inp.superFire = true;
   } else if (want) {

@@ -140,6 +140,10 @@ export function step(s: SimState, inputs: HeroInput[], dt = DT): void {
     s.banner.life -= dt;
     if (s.banner.life <= 0) s.banner = null;
   }
+  if (s.toast) {
+    s.toast.life -= dt;
+    if (s.toast.life <= 0) s.toast = null;
+  }
 
   for (const h of s.heroes) updateHero(s, h, inputs[h.index] ?? inputs[0], dt);
   const alive = s.heroes.filter((h) => h.alive);
@@ -598,7 +602,12 @@ function updateEnemy(s: SimState, e: Enemy, dt: number): void {
   const dx = h.x - e.x;
   const dy = h.y - e.y;
   const dist = Math.hypot(dx, dy) || 1;
-  const sees = e.blind <= 0 && (!h.hidden || dist < 64) && dist < 520 && lineOfSight(s.arena, e.x, e.y, h.x, h.y);
+  // The last wave of a floor: a handful of enemies left with nothing else to
+  // spawn. One of them going astray behind a wall or sitting at kiting range
+  // used to stall the floor for minutes (the 240 s valve in updateWaves).
+  // Stragglers always know where the hero is and close the distance.
+  const straggler = !s.bossFloor && s.wavesLeft === 0 && s.enemies.length <= 3;
+  const sees = straggler || (e.blind <= 0 && (!h.hidden || dist < 64) && dist < 520 && lineOfSight(s.arena, e.x, e.y, h.x, h.y));
   if (sees) {
     e.seenX = h.x;
     e.seenY = h.y;
@@ -667,6 +676,7 @@ function updateEnemy(s: SimState, e: Enemy, dt: number): void {
       const pref = e.behaviour === 'mortar' ? g.range * 0.8 : g.range * 0.65;
       if (e.behaviour !== 'turret') {
         if (e.mode === 'windup') go(0.0001, 0, 0);
+        else if (straggler) go(1);
         else if (!sees) go(1);
         else if (dist > pref + 30) go(1, e.side * 0.4);
         else if (dist < pref - 50) go(-1, e.side * 0.6, 0.8);
