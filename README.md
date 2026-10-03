@@ -98,6 +98,12 @@ ammu sen yli.
 Koodi ja arkkitehtuuri: [`CLAUDE.md`](./CLAUDE.md). Suunnittelu:
 [`docs/design.md`](./docs/design.md).
 
+Peli on itsenäinen: `npm ci && npm run build` tuottaa sivuston, joka pyörii
+millä tahansa staattisella palvelimella. Kävijäseuranta (`infra/`) on
+valinnainen lisä omaan AWS-tiliin; sen osoite annetaan käännöksen
+ympäristössä, ks. `TRACKING.md`. Lisenssi: MIT (`LICENSE`), eli saat
+käyttää, muokata ja jakaa vapaasti, ilman takuuta.
+
 ---
 
 ## In English
