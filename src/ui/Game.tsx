@@ -388,7 +388,7 @@ export function Game({ heroes, seed, onEnd, onQuit, onRestart }: { heroes: HeroD
       </div>
 
       {overlay.kind === 'cogs' && h0 && (
-        <div className="overlay">
+        <div className="overlay" data-ui>
           <h2>{tr('Hissi nousee. Valitse ratas.', 'The lift rises. Pick a cog.')}</h2>
           {overlay.left > 1 && <p className="small">{tr(`Pomo kaatui: ${overlay.left} valintaa.`, `The boss fell: ${overlay.left} picks.`)}</p>}
           <div className="cards">
@@ -400,7 +400,7 @@ export function Game({ heroes, seed, onEnd, onQuit, onRestart }: { heroes: HeroD
         </div>
       )}
       {overlay.kind === 'pause' && h0 && (
-        <div className="overlay">
+        <div className="overlay" data-ui>
           <h2>{tr('Tauko', 'Paused')}</h2>
           <div className="pauseguns">
             {h0.guns.map((g, i) => (

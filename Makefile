@@ -10,6 +10,7 @@
 #   make shots-setup   # once: install Playwright
 #   make shots         # phone screenshots into shots/
 #   make shots-en      # the same in English, into shots/en/
+#   make touch-check   # taps through the menus on an emulated phone
 #   make plan          # terraform plan for the pixel infra (no changes)
 #   make apply         # terraform apply (creates AWS resources)
 #   make outputs       # show terraform outputs (pixel_url etc.)
@@ -22,7 +23,7 @@ PROF     = $(if $(PROFILE),AWS_PROFILE=$(PROFILE) ,)
 AWS      = $(PROF)aws
 TF       = $(PROF)terraform -chdir=infra
 
-.PHONY: dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
+.PHONY: touch-check dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
 
 dev:
 	npm run dev
@@ -49,6 +50,9 @@ shots-setup:
 
 shots:
 	node scripts/shots.mjs
+
+touch-check:
+	node scripts/touch-check.mjs
 
 shots-en:
 	node scripts/shots.mjs en

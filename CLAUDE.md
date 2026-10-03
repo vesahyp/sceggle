@@ -113,6 +113,10 @@ scripts/shots.mjs        npm run shots: Playwright, iPhone 15, ?bot=1&speed=3
   bot's average floor moves the player's run the same way.
 - `make shots` / `make shots-en` for phone screenshots (Playwright, iPhone
   15, `?bot=1&speed=3&seed=`), never from a hand-held browser.
+- `make touch-check` when you touch a menu or the input: it taps through
+  the pause menu and the lift cog pick on an emulated phone. The touch
+  handler blocks the default action of play-field touches, so a menu
+  needs `data-ui` (or to be a button or inside `.overlay`) to be tappable.
 - `make plan` and `make apply` for `infra/`: the analytics pixel host
   (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`.
 - Deploy is automatic: every push to `master` builds and publishes to

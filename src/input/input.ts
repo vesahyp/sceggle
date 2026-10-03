@@ -91,7 +91,7 @@ export class InputController {
     this.mouse.seen = true;
   };
   private onMouseDown = (e: MouseEvent) => {
-    if ((e.target as HTMLElement).closest('[data-ui]')) return;
+    if ((e.target as HTMLElement).closest('[data-ui], button, .overlay')) return;
     this.onMouseMove(e);
     const b = this.superBtn;
     if (e.button === 2 || (e.button === 0 && Math.hypot(e.clientX - b.x, e.clientY - b.y) < b.r)) this.fireSuperAtMouse();
@@ -103,7 +103,7 @@ export class InputController {
   private onContext = (e: Event) => e.preventDefault();
 
   private onTouchStart = (e: TouchEvent) => {
-    if ((e.target as HTMLElement).closest('[data-ui]')) return;
+    if ((e.target as HTMLElement).closest('[data-ui], button, .overlay')) return;
     this.usedTouch = true;
     const w = this.el?.clientWidth || window.innerWidth;
     for (const t of Array.from(e.changedTouches)) {
