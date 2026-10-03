@@ -23,9 +23,15 @@ terraform {
 }
 
 # Default provider. S3 buckets live here.
+# The project tag is what Cost Explorer groups spend by, and what
+# budget.tf watches (jeeves/practices/infrastructure.md). The AWS names in
+# this stack keep the repo's old name, sceggle; the tag is the game's.
 provider "aws" {
   region  = var.region
   profile = var.aws_profile
+  default_tags {
+    tags = { project = "hoyry" }
+  }
 }
 
 # CloudFront requires its ACM certificate in us-east-1. Unused until the
@@ -35,4 +41,7 @@ provider "aws" {
   alias   = "us_east_1"
   region  = "us-east-1"
   profile = var.aws_profile
+  default_tags {
+    tags = { project = "hoyry" }
+  }
 }

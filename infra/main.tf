@@ -133,6 +133,30 @@ resource "aws_cloudfront_distribution" "site" {
     origin_access_control_id = aws_cloudfront_origin_access_control.site.id
   }
 
+  # The records API, for the cached GET /board (records.tf).
+  origin {
+    domain_name = replace(aws_apigatewayv2_api.records.api_endpoint, "https://", "")
+    origin_id   = "api-hoyry-records"
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/board"
+    target_origin_id       = "api-hoyry-records"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+    cache_policy_id        = aws_cloudfront_cache_policy.board.id
+    # AWS-managed AllViewerExceptHostHeader: API Gateway needs its own Host.
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+  }
+
   default_cache_behavior {
     target_origin_id       = "s3-sceggle-site"
     viewer_protocol_policy = "redirect-to-https"

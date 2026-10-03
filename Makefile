@@ -11,9 +11,10 @@
 #   make shots         # phone screenshots into shots/
 #   make shots-en      # the same in English, into shots/en/
 #   make touch-check   # taps through the menus on an emulated phone
-#   make plan          # terraform plan for the pixel infra (no changes)
-#   make apply         # terraform apply (creates AWS resources)
-#   make outputs       # show terraform outputs (pixel_url etc.)
+#   make plan          # terraform plan for infra/: the pixel host and the records API
+#   make apply         # terraform apply, then make env
+#   make env           # write .env.local from the Terraform outputs
+#   make outputs       # show terraform outputs (pixel_url, records_api, board_url)
 #   make deploy-pixel  # upload t.gif to the pixel bucket
 #
 # AWS profile: default credential chain; pass PROFILE=name to override.
@@ -23,7 +24,7 @@ PROF     = $(if $(PROFILE),AWS_PROFILE=$(PROFILE) ,)
 AWS      = $(PROF)aws
 TF       = $(PROF)terraform -chdir=infra
 
-.PHONY: touch-check dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
+.PHONY: env touch-check dev build preview check balance shots-setup shots shots-en plan apply outputs deploy-pixel
 
 dev:
 	npm run dev
@@ -68,12 +69,13 @@ apply:
 outputs:
 	@$(TF) output
 
-# The pixel URL for builds on this machine, from the Terraform output.
-# Gitignored (*.local): a clone without it builds a game whose tracker is
-# off, which is what a fork should get. The Pages deploy reads the same
-# value from a GitHub repository variable.
+# The back end for builds on this machine, written from the Terraform
+# outputs. Gitignored (*.local): a clone without it builds a game with no
+# tracker and no global records, which is what a fork should get. The
+# Pages deploy reads the same values from GitHub repository variables.
 env:
-	@printf 'VITE_PIXEL_URL=%s\n' "$$($(TF) output -raw pixel_url)" > .env.local
+	@{ for o in pixel_url records_api board_url; do \
+	     printf 'VITE_%s=%s\n' "$$(echo $$o | tr a-z A-Z)" "$$($(TF) output -raw $$o)"; done; } > .env.local
 	@cat .env.local
 
 # The pixel must never cache: every beacon has to reach the origin so the

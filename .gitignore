@@ -11,5 +11,6 @@ infra/.terraform/
 infra/tfplan
 infra/*.tfstate
 infra/*.tfstate.backup
+infra/.records.zip
 tools/dbg/
 shots/
