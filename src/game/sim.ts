@@ -1,5 +1,5 @@
 import { t, tr } from '../i18n';
-import { BUSH, T, flowDir, freeSpot, generateArena, lineOfSight, moveCircle, spawnTiles, tileAt, updateFlow } from './arena';
+import { BUSH, T, flowDir, freeSpot, generateArena, lineOfSight, moveCircle, openDir, spawnTiles, tileAt, updateFlow } from './arena';
 import { cogLevel, effect, explode, heal, hurtEnemy, hurtHero, killEnemy, nearestTarget, newId, text } from './combat';
 import { AFFIXES, BOSSES, ENEMIES } from './content/enemies';
 import type { HeroDef } from './content/heroes';
@@ -626,8 +626,13 @@ function updateEnemy(s: SimState, e: Enemy, dt: number): void {
       my += (dx / dist) * strafe;
     }
     const m = Math.hypot(mx, my) || 1;
-    moveCircle(s.arena, e, e.r, (mx / m) * speed * mul * dt, (my / m) * speed * mul * dt);
-    e.facing = Math.atan2(my, mx);
+    // A wide body (a boss) can be told by the flow field that the next
+    // tile is open and still clip the wall beside it: the field is
+    // tile-sized, the body is not. Turn the wish toward an opening
+    // instead of pushing the same blocked heading forever (see arena.ts).
+    const o = openDir(s.arena, e.x, e.y, e.r, mx / m, my / m);
+    moveCircle(s.arena, e, e.r, o.dx * speed * mul * dt, o.dy * speed * mul * dt);
+    e.facing = Math.atan2(o.dy, o.dx);
   };
 
   switch (e.behaviour) {

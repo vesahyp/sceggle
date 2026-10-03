@@ -100,6 +100,29 @@ export function hitsSolid(a: Arena, x: number, y: number, r: number): boolean {
   return false;
 }
 
+const TURN_OFFSETS = [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9];
+
+/**
+ * Rotate a wished unit direction toward the nearest opening when it is
+ * blocked. The flow field is tile-sized (one BFS hop = one tile); a body
+ * is not, so a wide body (a boss, r close to T) hugging a corridor wall
+ * can be told "that tile is open" while its own circle still clips the
+ * wall beside it, and if nothing ever turns the wish it pushes the same
+ * blocked heading forever. Same probe the player-facing bot already uses
+ * to avoid walking into walls (`autoplayer.ts`), shared so an enemy gets
+ * it too.
+ */
+export function openDir(a: Arena, x: number, y: number, r: number, ux: number, uy: number): { dx: number; dy: number } {
+  for (const turn of TURN_OFFSETS) {
+    const c = Math.cos(turn);
+    const sn = Math.sin(turn);
+    const tx = ux * c - uy * sn;
+    const ty = ux * sn + uy * c;
+    if (!hitsSolid(a, x + tx * (r + 6), y + ty * (r + 6), r)) return { dx: tx, dy: ty };
+  }
+  return { dx: ux, dy: uy };
+}
+
 /** The nearest point to (x, y) where a circle of radius r stands free. */
 export function freeSpot(a: Arena, x: number, y: number, r: number): { x: number; y: number } {
   if (!hitsSolid(a, x, y, r)) return { x, y };

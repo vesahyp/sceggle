@@ -1,4 +1,4 @@
-import { T, distanceField, flowDir, hitsSolid, lineOfSight } from '../src/game/arena';
+import { T, distanceField, flowDir, lineOfSight, openDir } from '../src/game/arena';
 import { gunScore } from '../src/game/guns';
 import type { CogDef } from '../src/game/content/cogs';
 import type { Rng } from '../src/game/rng';
@@ -132,21 +132,9 @@ export function botInput(s: SimState, h: Hero, rng: Rng): HeroInput {
   // Do not walk into walls: try turning the wish.
   const m = Math.hypot(mx, my);
   if (m > 0.01) {
-    let ux = mx / m;
-    let uy = my / m;
-    for (const turn of [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9]) {
-      const c = Math.cos(turn);
-      const sn = Math.sin(turn);
-      const tx = ux * c - uy * sn;
-      const ty = ux * sn + uy * c;
-      if (!hitsSolid(s.arena, h.x + tx * 18, h.y + ty * 18, h.r)) {
-        ux = tx;
-        uy = ty;
-        break;
-      }
-    }
-    inp.mx = ux;
-    inp.my = uy;
+    const o = openDir(s.arena, h.x, h.y, h.r, mx / m, my / m);
+    inp.mx = o.dx;
+    inp.my = o.dy;
   }
 
   // Swap to the other gun when this one is dry and the other is not.
