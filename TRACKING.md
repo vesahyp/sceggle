@@ -14,13 +14,18 @@ The game deploys to **GitHub Pages** (`.github/workflows/deploy.yml`), but
 GitHub Pages exposes no request logs — so the pixel is served from **our
 own CloudFront** (Terraform under `infra/`, mirroring tienoo's stack minus
 the domain/ACM/Route53 parts). The tracker endpoint is therefore an
-absolute cross-origin URL, set via `TRACKER_CONFIG` in `index.html`:
+absolute cross-origin URL, which `TRACKER_CONFIG` in `index.html` takes
+from `VITE_PIXEL_URL` at build time:
 
 ```html
 <script>
-  window.TRACKER_CONFIG = { endpoint: "https://<dist>.cloudfront.net/t.gif" };
+  window.TRACKER_CONFIG = { endpoint: "%VITE_PIXEL_URL%", enabled: /^https:/.test("%VITE_PIXEL_URL%") && ... };
 </script>
 ```
+
+The value is a GitHub repository variable for the Pages deploy and
+`.env.local` (written by `make env`) for builds on this machine. A clone or
+fork has neither, so its build beacons nowhere.
 
 With an empty endpoint (or on localhost) the tracker is dormant — events
 are dropped, or logged to the console with `debug: true`. This keeps dev
@@ -35,10 +40,10 @@ instead of Pages, and the endpoint flips back to the family's relative
 
 ```sh
 make plan          # terraform plan (infra/tfplan)
-make apply         # create S3 buckets + CloudFront; prints pixel_url
-# bake pixel_url into index.html's TRACKER_CONFIG
+make apply         # create S3 buckets + CloudFront; writes .env.local
+gh variable set VITE_PIXEL_URL --body "$(terraform -chdir=infra output -raw pixel_url)"
 make deploy-pixel  # upload public/t.gif with no-store
-git push           # Pages workflow ships tracker.js + config
+git push           # Pages workflow builds with the variable
 ```
 
 Beacons are sent with `navigator.sendBeacon` (POST). The distribution

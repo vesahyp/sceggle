@@ -63,12 +63,18 @@ plan:
 
 apply:
 	$(TF) apply tfplan
-	@echo
-	@echo "Pixel endpoint (bake into index.html's TRACKER_CONFIG):"
-	@$(TF) output -raw pixel_url; echo
+	$(MAKE) env
 
 outputs:
 	@$(TF) output
+
+# The pixel URL for builds on this machine, from the Terraform output.
+# Gitignored (*.local): a clone without it builds a game whose tracker is
+# off, which is what a fork should get. The Pages deploy reads the same
+# value from a GitHub repository variable.
+env:
+	@printf 'VITE_PIXEL_URL=%s\n' "$$($(TF) output -raw pixel_url)" > .env.local
+	@cat .env.local
 
 # The pixel must never cache: every beacon has to reach the origin so the
 # request (and its query string) lands in the CloudFront access logs.

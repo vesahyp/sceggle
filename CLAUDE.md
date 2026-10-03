@@ -118,7 +118,12 @@ scripts/shots.mjs        npm run shots: Playwright, iPhone 15, ?bot=1&speed=3
   handler blocks the default action of play-field touches, so a menu
   needs `data-ui` (or to be a button or inside `.overlay`) to be tappable.
 - `make plan` and `make apply` for `infra/`: the analytics pixel host
-  (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`.
+  (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`. The
+  pixel URL reaches `index.html` only through the build environment
+  (`VITE_PIXEL_URL`): `make env` writes `.env.local` from the Terraform
+  output for builds here, and the Pages deploy reads a GitHub repository
+  variable of the same name. A clone or fork without it has the tracker
+  off. Never put the URL in a committed file.
 - Deploy is automatic: every push to `master` builds and publishes to
   GitHub Pages (`.github/workflows/deploy.yml`) at
   https://vesahyp.github.io/hoyry/.

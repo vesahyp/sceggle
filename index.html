@@ -20,11 +20,14 @@
     <meta name="description" content="Kaksitikkuinen räiskintä höyrytehtaassa. Hullut aseet, kerros kerrokselta alas, puhelimessa ja selaimessa." />
     <!-- Analytics: the clavesa tracker (vendored from rakka) beacons to a
          1x1 GIF on our CloudFront; its access logs are the datastore. See
-         TRACKING.md. Off on localhost and for ?bot=1 screenshot runs. -->
+         TRACKING.md. The pixel URL is VITE_PIXEL_URL at build time: GitHub
+         repository variables for the Pages deploy, .env.local (make env) here.
+         A clone or fork without it sends nothing. Off on localhost and for
+         ?bot=1 screenshot runs. -->
     <script>
       window.TRACKER_CONFIG = {
-        endpoint: "https://duxl7vhiagvqm.cloudfront.net/t.gif",
-        enabled: !/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !/[?&]bot=1/.test(location.search)
+        endpoint: "%VITE_PIXEL_URL%",
+        enabled: /^https:/.test("%VITE_PIXEL_URL%") && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !/[?&]bot=1/.test(location.search)
       };
     </script>
     <script defer src="/tracker.js"></script>
