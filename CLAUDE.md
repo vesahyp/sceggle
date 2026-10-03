@@ -121,6 +121,6 @@ scripts/shots.mjs        npm run shots: Playwright, iPhone 15, ?bot=1&speed=3
   (S3 + CloudFront, Terraform). `make deploy-pixel` uploads `t.gif`.
 - Deploy is automatic: every push to `master` builds and publishes to
   GitHub Pages (`.github/workflows/deploy.yml`) at
-  https://vesahyp.github.io/sceggle/.
+  https://vesahyp.github.io/hoyry/.
 - When a change alters what the player sees or does (a control, a gun
   rule, a cog, a hero), update `README.md` in player words.

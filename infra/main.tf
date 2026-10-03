@@ -1,6 +1,10 @@
 ########################################################################
-# Sceggle — analytics pixel host on AWS (pattern lifted from tienoo,
+# Höyry: analytics pixel host on AWS (pattern lifted from tienoo,
 # itself from clavesa-dev/site).
+#
+# The game was called sceggle until 2026-10-03 and the AWS names here keep
+# that name on purpose: renaming the buckets or the distribution would
+# recreate them and change the pixel URL baked into index.html.
 #
 #   S3 (private) ── OAC ──> CloudFront ──> access logs ──> S3 logs bucket
 #

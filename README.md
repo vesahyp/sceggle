@@ -4,7 +4,7 @@ Tampere, 1899. Koneet tehtaan alla heräsivät eräänä yönä, ja nyt ne ampuv
 takaisin. Laskeudu työn läpi kerros kerrallaan, ota viholliselta ase jolla se
 ampui sinua, ja mene syvemmälle kuin viime kerralla.
 
-**Pelaa: https://vesahyp.github.io/sceggle/**. Toimii puhelimessa ja
+**Pelaa: https://vesahyp.github.io/hoyry/**. Toimii puhelimessa ja
 selaimessa. Lisää kotinäytölle, niin se aukeaa koko ruudulle.
 
 Peli on suomeksi ja englanniksi, kielen valitsee selain. *In English: the
@@ -107,7 +107,7 @@ Koodi ja arkkitehtuuri: [`CLAUDE.md`](./CLAUDE.md). Suunnittelu:
 your way down through the works, floor by floor, taking the gun each enemy
 shot you with.
 
-**Play: https://vesahyp.github.io/sceggle/**
+**Play: https://vesahyp.github.io/hoyry/**
 
 **Touch:** left thumb walks. Right thumb: tap fires at the nearest enemy you
 can see, drag shows an aim line and fires on release. The star button on

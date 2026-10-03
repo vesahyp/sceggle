@@ -5,7 +5,7 @@ script (`public/tracker.js`) sends events as beacons to a 1x1 GIF
 (`t.gif`), the data rides in the query string, and CloudFront access logs
 are the datastore. No cookies, no backend, no PII, $0 to run. The full
 event/parameter reference lives in `../tienoo/TRACKING.md` and
-`../ecarbrowser/TRACKING.md`; this file covers only what sceggle does
+`../ecarbrowser/TRACKING.md`; this file covers only what Höyry does
 differently.
 
 ## Split hosting (temporary)
@@ -26,7 +26,7 @@ With an empty endpoint (or on localhost) the tracker is dormant — events
 are dropped, or logged to the console with `debug: true`. This keeps dev
 sessions out of the production logs.
 
-When sceggle gets a real domain, the same distribution becomes the site
+When Höyry gets a real domain, the same distribution becomes the site
 host (add cert + aliases from tienoo's `infra/`), the game deploys there
 instead of Pages, and the endpoint flips back to the family's relative
 `/t.gif`.
@@ -48,10 +48,10 @@ pipeline reads only the query string. Same trick the sibling sites use.
 
 ## Game events
 
-`window.__sceggle.track(event, data)` is the app-level hook. Wire
-gameplay events (area exit, player death, weapon pickup) from
-`src/events.ts` — the sim → React bridge already sees all of them. Not
-wired yet.
+`window.__clvtracker.track(event, data)` is the app-level hook; the game
+calls it through `track()` in `src/records.ts`. Two events a run, both sent
+from `src/ui/Game.tsx`: `run_start` (hero, seed) and `run_end` (how it
+ended, floor, time, kills, coins, the guns held and the cogs taken).
 
 Logs land in `s3://sceggle-cloudfront-logs/cloudfront/` (90-day
 lifecycle). No aggregation pipeline yet — copy tienoo's
