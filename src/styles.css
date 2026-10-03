@@ -175,6 +175,7 @@ table.records th, table.records td { padding: 6px 8px; text-align: left; border-
 table.records .n { text-align: right; }
 
 /* update banner */
-.update { position: absolute; left: 50%; top: calc(var(--sat) + 60px); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; background: var(--panel); border: 2px solid var(--brass); border-radius: 12px; padding: 8px 10px 8px 14px; z-index: 10; font-size: 13px; }
-.update .btn { min-width: 0; padding: 8px 14px; font-size: 15px; margin: 0; }
+.update { position: absolute; left: 50%; top: calc(var(--sat) + 60px); transform: translateX(-50%); width: min(calc(100% - 24px), 360px); display: flex; align-items: center; gap: 10px; background: var(--panel); border: 2px solid var(--brass); border-radius: 12px; padding: 8px 10px 8px 14px; z-index: 10; font-size: 13px; text-align: left; }
+.update > span { flex: 1; min-width: 0; }
+.update .btn { flex: none; white-space: nowrap; min-width: 0; padding: 8px 14px; font-size: 15px; margin: 0; }
 .update small { color: var(--muted); }
