@@ -14,8 +14,10 @@ game follows your browser's language.*
 
 **Puhelimella:** vasen peukalo kävelee. Oikealla peukalolla napautus ampuu
 lähintä näkyvää vihollista, veto näyttää tähtäysviivan ja laukaisee kun
-nostat sormen. Tähtinappi on supervoima: täyttyy osumista, sama napautus tai
-veto kuin aseella. Napauta asetaskua vaihtaaksesi asetta. Kortti-nappi ottaa
+nostat sormen. Tähtinappi oikeassa reunassa on supervoima: se täyttyy
+osumista, ja sama keltainen palkki näkyy hahmon yllä. Kun se on täynnä,
+hahmon ympärillä hehkuu rengas ja pilli soi. Napautus tai veto kuten
+aseella. Napauta asetaskua vaihtaaksesi asetta. Kortti-nappi ottaa
 aseen jonka päällä seisot.
 
 **Näppäimistöllä:** WASD kävelee, hiiri tähtää ja ampuu klikillä (pidä
@@ -108,8 +110,10 @@ shot you with.
 **Play: https://vesahyp.github.io/sceggle/**
 
 **Touch:** left thumb walks. Right thumb: tap fires at the nearest enemy you
-can see, drag shows an aim line and fires on release. The star button is
-your super, charged by hits, same tap-or-drag control. Tap a gun slot to
+can see, drag shows an aim line and fires on release. The star button on
+the right edge is your super. Hits charge it, and the same yellow bar shows
+over your hero; when it is full a ring glows round the hero and a whistle
+blows. Same tap-or-drag control. Tap a gun slot to
 swap. The card button takes the gun you are standing on.
 
 **Keyboard:** WASD walks, the mouse aims and fires on click (hold to keep

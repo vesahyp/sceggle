@@ -83,7 +83,9 @@ export function hurtEnemy(s: SimState, e: Enemy, dmg: number, src: HitSource): v
   }
   if (h) {
     // The super fills from damage dealt, by the hero's rate.
+    const was = h.superCharge;
     h.superCharge = Math.min(1, h.superCharge + (dmg / 520) * h.stats.superRate);
+    if (was < 1 && h.superCharge >= 1) s.sounds.push('superready');
     if (src.legend === 'kahvipannu') heal(s, h, dmg * 0.22);
   }
   // Statuses: the gun's element and the cogs.

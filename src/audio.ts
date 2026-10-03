@@ -201,6 +201,12 @@ class Audio {
         this.tone(220, 0.4, { type: 'sawtooth', gain: 0.12, slide: 3 });
         this.burst(0.4, { gain: 0.15, hp: 800 });
         break;
+      case 'superready':
+        // a steam whistle: the super is charged
+        this.tone(1175, 0.35, { type: 'sine', gain: 0.12, attack: 0.03 });
+        this.tone(1480, 0.45, { type: 'sine', gain: 0.1, attack: 0.03, delay: 0.12 });
+        this.burst(0.4, { gain: 0.05, hp: 4000, delay: 0.1 });
+        break;
       case 'stomp':
         this.tone(60, 0.5, { type: 'sine', gain: 0.4, slide: 0.5 });
         this.burst(0.4, { gain: 0.3, hp: 40, lp: 900 });

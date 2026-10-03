@@ -880,11 +880,25 @@ export class Renderer {
       ctx.fillStyle = h.afterburn > 0 ? '#ff9a2a' : '#ffb020';
       if (fill > 0) ctx.fillRect(sx, y + 8, segW * fill, 3);
     }
-    if (h.superCharge >= 1) {
-      ctx.strokeStyle = `rgba(255,220,80,${0.6 + 0.4 * Math.sin(this.t * 8)})`;
-      ctx.lineWidth = 2;
+    // The super meter, under the ammo: the thumb covers the super button,
+    // so the charge shows where the eyes already are.
+    const ready = h.superCharge >= 1;
+    const pulse = 0.5 + 0.5 * Math.sin(this.t * 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(x - w / 2 - 0.5, y + 13, w + 1, 3.5);
+    ctx.fillStyle = ready ? `rgba(255,${235 + 20 * pulse},${120 + 120 * pulse},1)` : '#e8c840';
+    ctx.fillRect(x - w / 2, y + 13.5, w * Math.min(1, h.superCharge), 2.5);
+    if (ready) {
+      ctx.fillStyle = '#fff6c0';
+      ctx.font = '900 9px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText('★', x + w / 2 + 6, y + 14.5);
+      ctx.fillText('★', x + w / 2 + 6, y + 14.5);
+      // and a ring round the hero that cannot be missed
+      ctx.strokeStyle = `rgba(255,220,80,${0.55 + 0.45 * pulse})`;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(h.x, h.y - 4 - lift, 20, 0, Math.PI * 2);
+      ctx.arc(h.x, h.y - 4 - lift, 22 + 2 * pulse, 0, Math.PI * 2);
       ctx.stroke();
     }
     void s;

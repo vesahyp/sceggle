@@ -2,7 +2,7 @@
 // The game's touch handler blocks the default action of touches on the
 // play field; a menu it does not exempt cannot be tapped at all, while a
 // mouse click still works. That bug shipped once (the cog pick on the lift),
-// so this checks it. Run with `make touch-check`; needs `make shots-setup`.
+// so this checks it, and that the super button still fires where it sits. Run with `make touch-check`; needs `make shots-setup`.
 import { chromium, devices } from 'playwright';
 import { spawn } from 'node:child_process';
 
@@ -27,6 +27,13 @@ try {
   await page.getByRole('button', { name: 'Resume' }).tap();
   await page.waitForTimeout(300);
   check((await page.locator('.overlay').count()) === 0, 'a tap on Resume closes the pause menu');
+
+  await page.evaluate(() => (window.__sim.heroes[0].superCharge = 1));
+  // The ready button pulses, so tap its centre rather than wait for it to hold still.
+  const box = await page.locator('.superbtn').boundingBox();
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__sim.heroes[0].superCharge)) === 0, 'a tap on the super button fires the super');
 
   // Skip the fight: clear the floor and stand the hero on the lift.
   await page.evaluate(() => {
