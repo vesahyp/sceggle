@@ -5,10 +5,11 @@ The design is in `docs/design.md`.
 
 ## Next
 
-- Balance: the bot dies on floors 2 to 4 with some heroes, and a floor
-  should take 20 to 45 seconds. Tune with `make balance`.
-- Feel: hit stop on big hits, kill pops, a clearer gun pickup on touch.
-- Merge `reboot` to `master` once the new game beats the old one.
+- Playtest by hand on a phone; the bot is the only player so far. Tune
+  what feels wrong with `make balance` beside it.
+- The bot no longer kites the last enemies of a floor, and the sweep and
+  the aeronaut now die a little earlier in its runs. Check after the
+  playtest whether that is the bot or the game.
 
 ## Later
 
