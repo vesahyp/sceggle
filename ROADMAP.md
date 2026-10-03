@@ -18,4 +18,7 @@ The design is in `docs/design.md`.
 - A vending machine on the lift: spend coins on a gun or a reroll.
 - Co-op on one phone, as in Räkkä.
 - The global leaderboard, copied from Räkkä's records API.
+- itch.io and Newgrounds: the portal kit from Räkkä (`docs/portals.md`
+  there): a relative-path build, the iframe check, English store images,
+  the leaderboard read through the CloudFront cache, two beacons a run.
 - More orange guns, a fifth hero, and a boss pattern per floor theme.
